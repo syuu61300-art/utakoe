@@ -107,6 +107,15 @@ canvas#scope{width:100%;height:84px;display:block;border-top:1px solid var(--lin
 .predict li .bar{grid-column:1/-1;height:4px;border-radius:2px;background:var(--line);overflow:hidden}
 .predict li .bar i{display:block;height:100%;background:var(--accent);transition:width .4s}
 .predict .empty{color:var(--muted);font-size:13px}
+.w{cursor:pointer;border-radius:4px}
+.w:hover{background:color-mix(in srgb, var(--accent) 14%, transparent)}
+.fix-pop{position:fixed;z-index:20;left:max(16px,env(safe-area-inset-left,0px));right:max(16px,env(safe-area-inset-right,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));max-width:520px;margin:0 auto;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:10px;box-shadow:0 12px 40px rgba(0,0,0,.25)}
+.fix-pop input{font:700 20px var(--f-display);color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;width:100%}
+.fix-pop .row{display:flex;gap:8px;flex-wrap:wrap}
+.fix-pop .row button{flex:1 1 auto}
+.fix-pop .primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.fix-pop small{color:var(--muted)}
+#habitInfo button{margin-left:8px}
 .your-lyrics{border-top:1px solid var(--line);padding-top:12px;max-height:220px;overflow:auto}
 .your-lyrics p{margin:0;font:500 15px/1.8 var(--f-display)}
 .reveal{animation:rise .6s cubic-bezier(.2,.8,.2,1) both}
@@ -163,9 +172,21 @@ canvas#scope{width:100%;height:84px;display:block;border-top:1px solid var(--lin
       </div>
     </aside>
 
+    <div class="fix-pop" id="fixPop" hidden>
+      <span class="eyebrow" data-t="fixTitle"></span>
+      <input id="fixInput" type="text" autocomplete="off" enterkeyhint="done">
+      <small data-t="fixHint"></small>
+      <div class="row">
+        <button class="chip-btn primary" id="fixSave" type="button" data-t="fixSave"></button>
+        <button class="chip-btn" id="fixDelete" type="button" data-t="fixDelete"></button>
+        <button class="chip-btn" id="fixCancel" type="button" data-t="fixCancel"></button>
+      </div>
+    </div>
+
     <section class="log">
       <div class="log-head">
         <h2 data-t="log"></h2>
+        <span class="status" id="habitInfo"></span>
         <div class="controls">
           <button class="chip-btn" id="copyBtn" type="button" data-t="copy"></button>
           <button class="chip-btn" id="clearBtn" type="button" data-t="clear"></button>
@@ -199,7 +220,7 @@ const T = {
     thisSong:'この曲', songIdle:'曲がわかると、ここに曲名と内容が表示されます。',
     matching:'曲を照合しています', predict:'予測', searchingSong:'曲を検索中', noPredict:'歌い始めて5秒後から候補が出ます', yourLyrics:'あなたが歌った歌詞', year:'発表',
     listen:'YouTubeで聴く', lyrics:'歌詞を見る',
-    log:'記録', copy:'コピー', copied:'コピーしました', clear:'消去', auto:'自動判定（歌から言語を判定）'
+    log:'記録', habits:'覚えたくせ', habitsReset:'くせを全部忘れる', fixTitle:'正しい言葉に直す', fixSave:'直して覚える', fixDelete:'この語を消す', fixCancel:'やめる', fixHint:'次から同じ聞き間違いを自動で直します', notFound:'候補が見つかりません。歌い続けると探し続けます', copy:'コピー', copied:'コピーしました', clear:'消去', auto:'自動判定（歌から言語を判定）'
   },
   en: {
     tagline:'Your singing, word by word.', recLang:'Language',
@@ -217,7 +238,7 @@ const T = {
     thisSong:'This song', songIdle:'Once the song is recognized, its title and details appear here.',
     matching:'Matching the song', predict:'Predictions', searchingSong:'Searching for the song', noPredict:'Candidates appear 5 seconds after you start singing', yourLyrics:'Lyrics you sang', year:'Released',
     listen:'Listen on YouTube', lyrics:'View lyrics',
-    log:'Transcript', copy:'Copy', copied:'Copied', clear:'Clear', auto:'Auto-detect (from your singing)'
+    log:'Transcript', habits:'Learned fixes', habitsReset:'Forget all fixes', fixTitle:'Fix this word', fixSave:'Fix and remember', fixDelete:'Delete this word', fixCancel:'Cancel', fixHint:'The same mishearing will be fixed automatically next time', notFound:'No match yet. Keep singing and the search continues', copy:'Copy', copied:'Copied', clear:'Clear', auto:'Auto-detect (from your singing)'
   }
 };
 const LANGS = ['auto','ja-JP','en-US','en-GB','en-AU','en-CA','en-IN','en-IE','en-NZ','en-PH','en-SG','en-ZA','en-KE','en-NG','en-GH','en-TZ','en-PK','en-HK',
@@ -307,6 +328,12 @@ function segment(text, lang){
 }
 const NOSPACE = /[぀-ヿ㐀-鿿豈-﫿฀-๿가-힯ｦ-ﾟ]/;
 
+/* ---------- くせ学習：直した言葉を覚えて、次から自動で直す ---------- */
+let habits = {};
+try{ habits = JSON.parse(store.get('utakoe-habits') || '{}') || {}; }catch{ habits = {}; }
+const saveHabits = () => store.set('utakoe-habits', JSON.stringify(habits));
+const applyHabit = w => (w && Object.prototype.hasOwnProperty.call(habits, w)) ? habits[w] : w;
+
 /* ---------- 1秒置いてから一語ずつ表示 ---------- */
 function enqueue(item){
   const now = performance.now();
@@ -344,6 +371,7 @@ function reveal(item){
   // 表示する瞬間に、その位置の「最新の認識結果」を読む（1秒の間に直った言葉が反映される）
   let text = item.text;
   if (item.s){ const res = item.s.results[item.i]; text = res && res.toks[item.k]; }
+  if (text) text = applyHabit(text);
   if (!text){ if (!queue.length) showCaret(false); return; }
   const line = ensureLine();
   const prev = logLines[logLines.length-1].at(-1);
@@ -352,7 +380,8 @@ function reveal(item){
   span.className = 'w fresh'; span.textContent = text;
   line.insertBefore(span, caret.parentNode === line ? caret : null);
   setTimeout(() => span.classList.remove('fresh'), 900);
-  if (item.s) (item.s.shown[item.i] ||= [])[item.k] = {span, lineIdx: logLines.length - 1, pos: logLines[logLines.length-1].length, wIdx: words.length};
+  span._rec = {span, lineIdx: logLines.length - 1, pos: logLines[logLines.length-1].length, wIdx: words.length, heard: item.s ? (item.s.results[item.i]?.toks[item.k] || text) : text};
+  if (item.s) (item.s.shown[item.i] ||= [])[item.k] = span._rec;
   words.push(text);
   logLines[logLines.length-1].push(text);
   renderLog();
@@ -365,7 +394,9 @@ function correctShown(S, i){
   if (!res || !shown) return;
   let changed = false;
   shown.forEach((r, k) => {
-    const nt = res.toks[k] || '';
+    const raw = res.toks[k] || '';
+    const nt = applyHabit(raw);
+    if (r && raw) r.heard = raw;
     if (!r || nt === r.span.textContent || !logLines[r.lineIdx]) return;
     r.span.textContent = nt; r.span.classList.add('fresh'); setTimeout(() => r.span.classList.remove('fresh'), 900);
     logLines[r.lineIdx][r.pos] = nt; words[r.wIdx] = nt; changed = true;
@@ -374,6 +405,43 @@ function correctShown(S, i){
 }
 const joinWords = list => { const arr = list.filter(Boolean); return arr.reduce((s,w,i) => s + (i && !(NOSPACE.test(arr[i-1].at(-1)) || NOSPACE.test(w[0])) ? ' ' : '') + w, ''); };
 let logTimes = [];
+function setWord(r, text){
+  r.span.textContent = text;
+  if (logLines[r.lineIdx]) logLines[r.lineIdx][r.pos] = text;
+  words[r.wIdx] = text;
+}
+let fixTarget = null;
+function openFix(span){
+  fixTarget = span._rec; if (!fixTarget) return;
+  $('#fixInput').value = span.textContent;
+  $('#fixPop').hidden = false;
+  setTimeout(() => { $('#fixInput').focus(); $('#fixInput').select(); }, 30);
+}
+function closeFix(){ $('#fixPop').hidden = true; fixTarget = null; }
+function commitFix(newText){
+  if (!fixTarget) return;
+  const heard = fixTarget.heard || fixTarget.span.textContent;
+  habits[heard] = newText; saveHabits();
+  // 画面上の同じ聞き間違いをまとめて直す
+  document.querySelectorAll('#lyrics .w').forEach(sp => { const r = sp._rec; if (r && (r === fixTarget || r.heard === heard)) setWord(r, newText); });
+  if (!document.querySelector('#lyrics .w')) setWord(fixTarget, newText);
+  closeFix(); renderLog(); renderHabitInfo();
+  if (songPhase === 'shown') renderYourLyrics();
+}
+function renderHabitInfo(){
+  const el = $('#habitInfo'); if (!el) return;
+  const n = Object.keys(habits).length;
+  el.textContent = n ? `${t('habits')}: ${n}` : '';
+  if (n){
+    const b = document.createElement('button'); b.className = 'chip-btn'; b.type = 'button'; b.textContent = t('habitsReset');
+    let armed = false;
+    b.addEventListener('click', () => {
+      if (!armed){ armed = true; b.textContent = t('habitsReset') + '？'; setTimeout(() => { armed = false; b.textContent = t('habitsReset'); }, 3000); return; }
+      habits = {}; saveHabits(); renderHabitInfo();
+    });
+    el.append(b);
+  }
+}
 function renderLog(){
   const box = $('#logBody'); box.innerHTML = '';
   logLines.forEach((ln, i) => {
@@ -663,17 +731,19 @@ function scoreCands(){
   const pl = [...pool.entries()].map(([k, c]) => [norm(k), c]);
   for (const c of cands.values()){
     const tn = norm(c.title), an = norm(c.artist);
-    let sc = c.hits * 0.6;
+    // 「カタログに出てきた」だけでは候補にしない。曲名がネットの検索候補か、歌った言葉の中に出てきた曲だけを数える
+    let ev = 0, sc = 0;
     for (const [ns, cnt] of pl){
-      if (tn.length >= 2 && ns.includes(tn)) sc += 1.5 * cnt;
-      if (an.length >= 2 && ns.includes(an)) sc += 1.0 * cnt;
+      if (tn.length >= 2 && ns.includes(tn)){ sc += 1.5 * cnt; ev += cnt; if (an.length >= 2 && ns.includes(an)) sc += 1.0 * cnt; }
     }
-    if (tn.length >= 3) sc += 1.2 * Math.min(countIn(segText, tn), 3);
-    c.score = sc;
+    if (tn.length >= 3){ const occ = Math.min(countIn(segText, tn), 3); sc += 1.2 * occ; ev += occ; }
+    c.ev = ev;
+    c.score = ev > 0 ? sc + c.hits * 0.6 : 0;
   }
   const ranked = [...cands.values()].filter(c => c.score > 0).sort((a, b) => b.score - a.score).slice(0, 5);
   const total = ranked.reduce((s2, c) => s2 + c.score, 0) + 1.5;
-  ranked.forEach(c => { c.pct = c.score / total; });
+  // ％は「ほかの候補との比較」と「証拠の量」の両方で決める（証拠が少ないと高く出ない）
+  ranked.forEach(c => { c.pct = (c.score / total) * (1 - Math.exp(-c.score / 5)); });
   return ranked;
 }
 function renderPredict(ranked){
@@ -738,9 +808,9 @@ async function songLoop(){
     const ranked = scoreCands();
     renderPredict(ranked);
     const top = ranked[0];
-    if (!top) return;
+    if (!top){ if ((performance.now() - segStartAt) / 1000 >= 15 && status) status.textContent = t('notFound'); return; }
     const el2 = (performance.now() - segStartAt) / 1000;
-    const ready = (top.pct >= 0.6 && top.score >= 4) || (el2 >= 15 && top.pct >= 0.35) || (el2 > 15 && top.pct >= 0.5);
+    const ready = (top.pct >= 0.6 && top.ev >= 2) || (el2 >= 15 && top.pct >= 0.45 && top.ev >= 2);
     if (ready && top.key !== currentKey) think(Object.assign({match: true, confidence: top.pct}, top), top.key);
   }catch{} finally{ searchBusy = false; }
 }
@@ -1013,6 +1083,11 @@ $('#recLang').addEventListener('change', e => {
   updateBadge();
 });
 $('#uiToggle').addEventListener('click', () => { ui = ui === 'ja' ? 'en' : 'ja'; store.set('utakoe-ui', ui); applyText(); setUI(); });
+$('#lyrics').addEventListener('click', e => { const sp = e.target.closest('.w'); if (sp) openFix(sp); });
+$('#fixSave').addEventListener('click', () => { const v = $('#fixInput').value.trim(); if (v) commitFix(v); else commitFix(''); });
+$('#fixDelete').addEventListener('click', () => commitFix(''));
+$('#fixCancel').addEventListener('click', closeFix);
+$('#fixInput').addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); $('#fixSave').click(); } else if (e.key === 'Escape') closeFix(); });
 $('#copyBtn').addEventListener('click', async () => {
   const text = logLines.filter(l => l.length).map(joinWords).join('\n');
   try{ await navigator.clipboard.writeText(text); const b = $('#copyBtn'); b.textContent = t('copied'); setTimeout(() => b.textContent = t('copy'), 1500); }catch{}
@@ -1025,7 +1100,7 @@ $('#clearBtn').addEventListener('click', () => {
   renderLog();
 });
 
-applyText(); setUI(); idleScope(); renderPredict([]);
+applyText(); setUI(); idleScope(); renderPredict([]); renderHabitInfo();
 if (/github\.com$|githubusercontent\.com$/.test(location.hostname)) showMsg(t('github'));
 else if (!window.isSecureContext) showMsg(t('insecure'));
 else if (IN_APP) showMsg(t('inapp'));
