@@ -1,0 +1,737 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>UTAKOE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Shippori+Mincho+B1:wght@500;700;800&family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a dark stage where sung words surface one by one; the identified song sits beside it like a liner note. */
+:root{
+  --bg:#11131b; --surface:#1a1d28; --line:#2b2f3e; --ink:#eeeae2; --muted:#8d91a6;
+  --accent:#f2b24c; --accent-ink:#1a1306; --rec:#ef5b5b;
+  --f-display:"Shippori Mincho B1","Hiragino Mincho ProN","Yu Mincho",serif;
+  --f-body:"Zen Kaku Gothic New","Hiragino Sans","Noto Sans JP",system-ui,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  color-scheme:dark;
+}
+@media (prefers-color-scheme: light){
+  :root{--bg:#f5f3ee;--surface:#ffffff;--line:#e2ded4;--ink:#1c1d24;--muted:#6a6d7c;--accent:#b0700f;--accent-ink:#ffffff;--rec:#d33f3e;color-scheme:light}
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:15px/1.7 var(--f-body);
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  padding-block:0 env(safe-area-inset-bottom,0px);min-height:100vh}
+.wrap{max-width:1180px;margin:0 auto}
+header.top{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px 24px;padding-block:20px 8px}
+.brand{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+.brand h1{margin:0;font:800 26px/1 var(--f-display);letter-spacing:.14em}
+.brand h1 span{color:var(--accent)}
+.brand p{margin:0;color:var(--muted);font-size:13px}
+.controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.controls label{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+select,.chip-btn{font:500 13px var(--f-body);color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 10px}
+.chip-btn{cursor:pointer}
+select#recLang{max-width:min(62vw,260px)}
+.auto-badge{font:500 12px var(--f-mono);color:var(--accent);border:1px solid var(--accent);border-radius:999px;padding:3px 10px;white-space:nowrap}
+.auto-badge.busy::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);margin-right:6px;vertical-align:1px;animation:blink 1s infinite}
+.msg{line-height:1.7}
+select:focus-visible,button:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+main{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:24px;padding-block:16px 40px}
+@media (max-width:900px){main{grid-template-columns:minmax(0,1fr)}}
+
+/* Stage */
+.stage{min-width:0;display:flex;flex-direction:column;gap:18px}
+.lyrics{min-height:340px;display:flex;flex-direction:column;justify-content:flex-end;gap:10px;padding-block:24px;overflow:hidden}
+.lyric-line{font:700 clamp(24px,4.2vw,44px)/1.35 var(--f-display);word-break:break-word;transition:opacity .6s, font-size .6s}
+.lyric-line:not(:last-child){opacity:.32;font-size:clamp(18px,2.6vw,26px)}
+.lyric-line:nth-last-child(n+5){opacity:.14}
+.w{display:inline-block;animation:rise .45s cubic-bezier(.2,.8,.2,1) both}
+.w.fresh{color:var(--accent)}
+@keyframes rise{from{opacity:0;transform:translateY(.35em);filter:blur(4px)}to{opacity:1;transform:none;filter:none}}
+.thinking{display:inline-flex;gap:.18em;margin-left:.25em;vertical-align:middle}
+.thinking i{width:.22em;height:.22em;border-radius:50%;background:var(--accent);animation:blink 1s infinite}
+.thinking i:nth-child(2){animation-delay:.15s}.thinking i:nth-child(3){animation-delay:.3s}
+@keyframes blink{0%,100%{opacity:.2}50%{opacity:1}}
+.placeholder{color:var(--muted);font:500 clamp(18px,2.4vw,24px)/1.6 var(--f-display);max-width:30ch}
+
+.deck{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+.mic{position:relative;flex:none;width:76px;height:76px;border-radius:50%;border:0;cursor:pointer;
+  background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;transition:transform .15s}
+.mic:hover{transform:scale(1.04)}
+.mic svg{width:30px;height:30px}
+.mic.on{background:var(--rec);color:#fff}
+.mic .halo{position:absolute;inset:-8px;border-radius:50%;border:2px solid var(--rec);opacity:0;transform:scale(var(--lvl,1))}
+.mic.on .halo{opacity:.55}
+.deck-text{display:flex;flex-direction:column;gap:2px;min-width:0}
+.deck-text strong{font-size:16px}
+.status{font:400 12px var(--f-mono);color:var(--muted)}
+.status .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--muted);margin-right:6px;vertical-align:1px}
+.status.live .dot{background:var(--rec);animation:blink 1.2s infinite}
+canvas#scope{width:100%;height:84px;display:block;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.msg{color:var(--rec);font-size:13px;margin:0}
+
+/* Song card */
+.song{min-width:0;align-self:start;position:sticky;top:16px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:22px;display:flex;flex-direction:column;gap:14px}
+.eyebrow{font:500 11px var(--f-mono);letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
+.song-idle{color:var(--muted);font-size:14px;margin:0}
+.ring-wrap{display:flex;align-items:center;gap:14px}
+.ring{width:54px;height:54px;flex:none}
+.ring circle{fill:none;stroke-width:4}
+.ring .bgc{stroke:var(--line)}
+.ring .fg{stroke:var(--accent);stroke-linecap:round;stroke-dasharray:151;stroke-dashoffset:151;transform:rotate(-90deg);transform-origin:50% 50%}
+.ring.go .fg{animation:fill 5s linear forwards}
+@keyframes fill{to{stroke-dashoffset:0}}
+.ring text{font:500 14px var(--f-mono);fill:var(--ink)}
+.song-title{margin:0;font:800 26px/1.25 var(--f-display);text-wrap:balance}
+.song-artist{margin:0;color:var(--muted);font-size:15px}
+.meta{font:400 12px var(--f-mono);color:var(--muted)}
+.summary{margin:0;font-size:14px}
+.tags{display:flex;flex-wrap:wrap;gap:6px}
+.tags span{font-size:12px;border:1px solid var(--line);border-radius:999px;padding:2px 10px;color:var(--muted)}
+.links{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.links a{display:block;text-align:center;text-decoration:none;color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px 6px;font-size:13px;font-weight:500}
+.links a.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);grid-column:1/-1}
+.links a:hover{border-color:var(--accent)}
+.your-lyrics{border-top:1px solid var(--line);padding-top:12px;max-height:220px;overflow:auto}
+.your-lyrics p{margin:0;font:500 15px/1.8 var(--f-display)}
+.reveal{animation:rise .6s cubic-bezier(.2,.8,.2,1) both}
+
+/* Log */
+.log{grid-column:1/-1;border-top:1px solid var(--line);padding-top:18px;display:flex;flex-direction:column;gap:10px}
+.log-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.log-head h2{margin:0;font:700 18px var(--f-display)}
+.log-body{font:400 14px/1.9 var(--f-body);white-space:pre-wrap;color:var(--muted);max-height:240px;overflow:auto;min-height:3em}
+.log-body .ts{font:400 11px var(--f-mono);margin-right:10px;font-variant-numeric:tabular-nums}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <h1>UTA<span>KOE</span></h1>
+      <p data-t="tagline"></p>
+    </div>
+    <div class="controls">
+      <label for="recLang" data-t="recLang"></label>
+      <select id="recLang"></select>
+      <span class="auto-badge" id="autoBadge" hidden></span>
+      <button class="chip-btn" id="uiToggle" type="button">EN</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="stage">
+      <div class="lyrics" id="lyrics" aria-live="polite">
+        <p class="placeholder" id="placeholder" data-t="idleStage"></p>
+      </div>
+      <canvas id="scope" aria-hidden="true"></canvas>
+      <div class="deck">
+        <button class="mic" id="mic" type="button">
+          <span class="halo"></span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+        </button>
+        <div class="deck-text">
+          <strong id="micLabel"></strong>
+          <span class="status" id="status"><span class="dot"></span><span id="statusText"></span></span>
+        </div>
+      </div>
+      <p class="msg" id="msg" hidden></p>
+    </section>
+
+    <aside class="song" id="song">
+      <span class="eyebrow" data-t="thisSong"></span>
+      <div id="songBody"><p class="song-idle" data-t="songIdle"></p></div>
+    </aside>
+
+    <section class="log">
+      <div class="log-head">
+        <h2 data-t="log"></h2>
+        <div class="controls">
+          <button class="chip-btn" id="copyBtn" type="button" data-t="copy"></button>
+          <button class="chip-btn" id="clearBtn" type="button" data-t="clear"></button>
+        </div>
+      </div>
+      <div class="log-body" id="logBody"></div>
+    </section>
+  </main>
+</div>
+
+<script>
+(() => {
+'use strict';
+const $ = s => document.querySelector(s);
+
+/* ---------- 表示文言 ---------- */
+const T = {
+  ja: {
+    tagline:'あなたの歌声を、一語ずつ文字に。', recLang:'歌の言語',
+    idleStage:'マイクを押して、歌うか話してください。声が一語ずつここに現れます。',
+    start:'歌いはじめる', stop:'止める', listening:'聞いています', paused:'停止中',
+    unsupported:'このブラウザは音声の文字化に対応していません。Chrome か Edge で開いてください（波形の表示だけ動きます）。',
+    denied:'マイクがブロックされています。アドレスバー左側のアイコン（鍵や設定のマーク）→「マイク」を「許可」にして、ページを再読み込みしてください。',
+    insecure:'このページは https で開かれていないため、マイクを使えません。https:// で始まるアドレス（github.io のアドレス）で開いてください。',
+    nomedia:'このブラウザではマイクを使えません。Chrome か Safari で開いてください。',
+    nomic:'マイクが見つかりません。マイクが接続されているか、ほかのアプリが使っていないか確認してください。',
+    inapp:'アプリ内のブラウザ（LINE・Instagram など）ではマイクが使えません。メニューから「ブラウザで開く」を選び、Chrome か Safari で開いてください。',
+    github:'ここは GitHub のファイル表示画面です。サイトは https://ユーザー名.github.io/リポジトリ名/ のアドレスで開いてください。',
+    network:'音声の文字化サービスにつながりません。Chrome で開き、インターネット接続を確認してください。',
+    detecting:'言語を判定中', autoNow:'自動', 
+    thisSong:'この曲', songIdle:'曲がわかると、ここに曲名と内容が表示されます。',
+    matching:'曲を照合しています', yourLyrics:'あなたが歌った歌詞', year:'発表',
+    listen:'YouTubeで聴く', lyrics:'歌詞を見る',
+    log:'記録', copy:'コピー', copied:'コピーしました', clear:'消去', auto:'自動判定（歌から言語を判定）'
+  },
+  en: {
+    tagline:'Your singing, word by word.', recLang:'Language',
+    idleStage:'Press the mic and sing or speak. Your words will appear here one at a time.',
+    start:'Start singing', stop:'Stop', listening:'Listening', paused:'Stopped',
+    unsupported:'This browser cannot turn speech into text. Open the page in Chrome or Edge (only the waveform works here).',
+    denied:'The microphone is blocked. Click the icon at the left of the address bar, set Microphone to Allow, then reload the page.',
+    insecure:'This page is not open over https, so the microphone cannot be used. Open the https:// address (the github.io address).',
+    nomedia:'This browser cannot use the microphone. Open the page in Chrome or Safari.',
+    nomic:'No microphone was found. Check that one is connected and not in use by another app.',
+    inapp:'In-app browsers (LINE, Instagram and others) cannot use the microphone. Choose "Open in browser" from the menu and use Chrome or Safari.',
+    github:'This is GitHub\'s file view. Open the site at https://USERNAME.github.io/REPOSITORY/ instead.',
+    network:'Cannot reach the speech-to-text service. Use Chrome and check your internet connection.',
+    detecting:'Detecting language', autoNow:'Auto', 
+    thisSong:'This song', songIdle:'Once the song is recognized, its title and details appear here.',
+    matching:'Matching the song', yourLyrics:'Lyrics you sang', year:'Released',
+    listen:'Listen on YouTube', lyrics:'View lyrics',
+    log:'Transcript', copy:'Copy', copied:'Copied', clear:'Clear', auto:'Auto-detect (from your singing)'
+  }
+};
+const LANGS = ['auto','ja-JP','en-US','en-GB','en-AU','en-CA','en-IN','en-IE','en-NZ','en-PH','en-SG','en-ZA','en-KE','en-NG','en-GH','en-TZ','en-PK','en-HK',
+  'ko-KR','cmn-Hans-CN','cmn-Hant-TW','yue-Hant-HK',
+  'es-ES','es-MX','es-US','es-AR','es-BO','es-CL','es-CO','es-CR','es-DO','es-EC','es-GT','es-HN','es-NI','es-PA','es-PE','es-PR','es-PY','es-SV','es-UY','es-VE',
+  'fr-FR','fr-CA','fr-BE','fr-CH','de-DE','de-AT','de-CH','it-IT','it-CH','pt-BR','pt-PT','nl-NL','nl-BE',
+  'ru-RU','uk-UA','be-BY','pl-PL','cs-CZ','sk-SK','sl-SI','hr-HR','sr-RS','bs-BA','bg-BG','mk-MK','ro-RO','hu-HU','el-GR','sq-AL',
+  'sv-SE','da-DK','nb-NO','fi-FI','is-IS','et-EE','lv-LV','lt-LT','ca-ES','eu-ES','gl-ES','cy-GB','ga-IE','mt-MT','lb-LU',
+  'tr-TR','az-AZ','ka-GE','hy-AM','kk-KZ','uz-UZ','ky-KG','tg-TJ','tk-TM','mn-MN',
+  'ar-SA','ar-AE','ar-EG','ar-MA','ar-DZ','ar-TN','ar-LY','ar-IQ','ar-JO','ar-KW','ar-LB','ar-QA','ar-BH','ar-OM','ar-YE','ar-SY','ar-PS','ar-IL',
+  'he-IL','fa-IR','ps-AF','ku-IQ','ur-PK','ur-IN',
+  'hi-IN','bn-IN','bn-BD','pa-Guru-IN','gu-IN','mr-IN','ta-IN','ta-LK','ta-SG','ta-MY','te-IN','kn-IN','ml-IN','or-IN','as-IN','ne-NP','si-LK',
+  'th-TH','vi-VN','id-ID','ms-MY','fil-PH','jv-ID','su-ID','km-KH','lo-LA','my-MM',
+  'am-ET','sw-KE','sw-TZ','zu-ZA','xh-ZA','af-ZA','st-ZA','so-SO','yo-NG','ig-NG','ha-NG','rw-RW','mg-MG','haw-US','mi-NZ','sm-WS','to-TO'];
+const dispTag = c => c.replace(/^cmn-Hans-/, 'zh-Hans-').replace(/^cmn-Hant-/, 'zh-Hant-').replace(/^yue-Hant-/, 'yue-').replace(/^pa-Guru-/, 'pa-');
+function langName(code, inLang){
+  try{ return new Intl.DisplayNames([inLang || (ui === 'ja' ? 'ja' : 'en')], {type:'language'}).of(dispTag(code)); }catch{ return code; }
+}
+function langLabel(code){
+  const mine = langName(code), native = langName(code, dispTag(code));
+  return native && native !== mine ? `${mine}｜${native}` : mine;
+}
+/* 判定結果（ISO 639-3）→ 音声認識の言語 */
+const ISO3 = {jpn:'ja-JP',eng:'en-US',kor:'ko-KR',cmn:'cmn-Hans-CN',yue:'yue-Hant-HK',spa:'es-ES',fra:'fr-FR',deu:'de-DE',ita:'it-IT',por:'pt-BR',nld:'nl-NL',
+  rus:'ru-RU',ukr:'uk-UA',bel:'be-BY',pol:'pl-PL',ces:'cs-CZ',slk:'sk-SK',slv:'sl-SI',hrv:'hr-HR',srp:'sr-RS',bos:'bs-BA',bul:'bg-BG',mkd:'mk-MK',ron:'ro-RO',hun:'hu-HU',ell:'el-GR',als:'sq-AL',sqi:'sq-AL',
+  swe:'sv-SE',dan:'da-DK',nob:'nb-NO',nno:'nb-NO',fin:'fi-FI',isl:'is-IS',ekk:'et-EE',est:'et-EE',lvs:'lv-LV',lav:'lv-LV',lit:'lt-LT',cat:'ca-ES',eus:'eu-ES',glg:'gl-ES',cym:'cy-GB',gle:'ga-IE',mlt:'mt-MT',ltz:'lb-LU',
+  tur:'tr-TR',azj:'az-AZ',azb:'az-AZ',kat:'ka-GE',hye:'hy-AM',kaz:'kk-KZ',uzn:'uz-UZ',kir:'ky-KG',tgk:'tg-TJ',tuk:'tk-TM',khk:'mn-MN',
+  arb:'ar-SA',ary:'ar-MA',arz:'ar-EG',heb:'he-IL',pes:'fa-IR',prs:'fa-IR',pbu:'ps-AF',ckb:'ku-IQ',kmr:'ku-IQ',urd:'ur-PK',
+  hin:'hi-IN',ben:'bn-IN',pan:'pa-Guru-IN',guj:'gu-IN',mar:'mr-IN',tam:'ta-IN',tel:'te-IN',kan:'kn-IN',mal:'ml-IN',ory:'or-IN',asm:'as-IN',npi:'ne-NP',nep:'ne-NP',sin:'si-LK',
+  tha:'th-TH',vie:'vi-VN',ind:'id-ID',zlm:'ms-MY',zsm:'ms-MY',tgl:'fil-PH',jav:'jv-ID',sun:'su-ID',khm:'km-KH',lao:'lo-LA',mya:'my-MM',
+  amh:'am-ET',swh:'sw-KE',zul:'zu-ZA',xho:'xh-ZA',afr:'af-ZA',sot:'st-ZA',som:'so-SO',yor:'yo-NG',ibo:'ig-NG',hau:'ha-NG',kin:'rw-RW',plt:'mg-MG',haw:'haw-US',mri:'mi-NZ',smo:'sm-WS',ton:'to-TO'};
+function initialAuto(){
+  const nl = (navigator.language || 'ja-JP');
+  return LANGS.find(c => c.toLowerCase() === nl.toLowerCase()) || LANGS.find(c => c !== 'auto' && c.split('-')[0] === nl.split('-')[0]) || 'ja-JP';
+}
+let autoLang = initialAuto();
+
+const store = {
+  get(k){ try{ return localStorage.getItem(k); }catch{ return null; } },
+  set(k,v){ try{ localStorage.setItem(k,v); }catch{} }
+};
+let ui = store.get('utakoe-ui') || ((navigator.language||'ja').startsWith('ja') ? 'ja' : 'en');
+const t = k => T[ui][k] ?? k;
+
+function applyText(){
+  document.documentElement.lang = ui;
+  document.querySelectorAll('[data-t]').forEach(el => el.textContent = t(el.dataset.t));
+  $('#uiToggle').textContent = ui === 'ja' ? 'EN' : '日本語';
+  $('#micLabel').textContent = listening ? t('stop') : t('start');
+  $('#statusText').textContent = listening ? t('listening') : t('paused');
+  const sel = $('#recLang'), cur = sel.value || store.get('utakoe-lang') || 'auto';
+  sel.innerHTML = '';
+  LANGS.forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = v === 'auto' ? t('auto') : langLabel(v); sel.appendChild(o); });
+  sel.value = LANGS.includes(cur) ? cur : 'auto';
+  updateBadge();
+  if (currentSong && songPhase === 'shown') renderSong(currentSong);
+}
+const isAuto = () => $('#recLang').value === 'auto';
+const recLang = () => isAuto() ? autoLang : $('#recLang').value;
+let detectBusy = false, detectedOnce = false;
+function updateBadge(){
+  const b = $('#autoBadge'); if (!b) return;
+  b.hidden = !isAuto();
+  b.classList.toggle('busy', listening && !detectedOnce);
+  b.textContent = listening && !detectedOnce ? t('detecting') : `${t('autoNow')}: ${langName(autoLang)}`;
+}
+
+/* ---------- 状態 ---------- */
+let listening = false, rec = null, stream = null, audioCtx = null, analyser = null, raf = 0;
+let committed = [];               // 認識セッション内の各結果ごとに表示済みの語数
+const queue = []; let lastRevealAt = 0, pumpTimer = null;
+const words = [];                 // 表示済みの全単語
+const logLines = [[]];            // 行ごとの単語
+let currentLine = null;
+const caret = document.createElement('span');
+caret.className = 'thinking'; caret.innerHTML = '<i></i><i></i><i></i>';
+
+/* ---------- 単語分割（日本語・中国語・タイ語にも対応） ---------- */
+function segment(text, lang){
+  if ('Segmenter' in Intl){
+    try{
+      const seg = new Intl.Segmenter(lang, {granularity:'word'});
+      return [...seg.segment(text)].filter(s => s.isWordLike).map(s => s.segment);
+    }catch{}
+  }
+  return text.split(/\s+/).filter(Boolean);
+}
+const NOSPACE = /[぀-ヿ㐀-鿿豈-﫿฀-๿가-힯ｦ-ﾟ]/;
+
+/* ---------- 1秒置いてから一語ずつ表示 ---------- */
+function enqueue(item){
+  const now = performance.now();
+  item.at = item.type === 'word' ? Math.max(now + 1000, lastRevealAt + 110) : lastRevealAt + 5;
+  lastRevealAt = item.at;
+  queue.push(item);
+  showCaret(true);
+  pump();
+}
+function pump(){
+  if (pumpTimer) return;
+  if (!queue.length){ showCaret(false); return; }
+  pumpTimer = setTimeout(() => { pumpTimer = null; reveal(queue.shift()); pump(); },
+    Math.max(0, queue[0].at - performance.now()));
+}
+function ensureLine(){
+  if (!currentLine){
+    $('#placeholder')?.remove();
+    currentLine = document.createElement('div');
+    currentLine.className = 'lyric-line';
+    $('#lyrics').appendChild(currentLine);
+    const lines = $('#lyrics').querySelectorAll('.lyric-line');
+    if (lines.length > 7) lines[0].remove();
+  }
+  return currentLine;
+}
+function showCaret(on){
+  if (on){ ensureLine().appendChild(caret); } else caret.remove();
+}
+function reveal(item){
+  if (item.type === 'break'){
+    if (currentLine && currentLine.querySelector('.w')){ currentLine = null; logLines.push([]); if (queue.length) showCaret(true); }
+    renderLog(); return;
+  }
+  const line = ensureLine();
+  const prev = logLines[logLines.length-1].at(-1);
+  if (prev && !(NOSPACE.test(prev.at(-1)) || NOSPACE.test(item.text[0]))) line.insertBefore(document.createTextNode(' '), caret.parentNode === line ? caret : null);
+  const span = document.createElement('span');
+  span.className = 'w fresh'; span.textContent = item.text;
+  line.insertBefore(span, caret.parentNode === line ? caret : null);
+  setTimeout(() => span.classList.remove('fresh'), 900);
+  words.push(item.text);
+  logLines[logLines.length-1].push(item.text);
+  renderLog();
+  if (songPhase === 'shown') renderYourLyrics();
+  maybeIdentify();
+}
+const joinWords = arr => arr.reduce((s,w,i) => s + (i && !(NOSPACE.test(arr[i-1].at(-1)) || NOSPACE.test(w[0])) ? ' ' : '') + w, '');
+let logTimes = [];
+function renderLog(){
+  const box = $('#logBody'); box.innerHTML = '';
+  logLines.forEach((ln, i) => {
+    if (!ln.length) return;
+    if (!logTimes[i]) logTimes[i] = new Date();
+    const row = document.createElement('div');
+    const ts = document.createElement('span'); ts.className = 'ts';
+    ts.textContent = logTimes[i].toLocaleTimeString(ui === 'ja' ? 'ja-JP' : 'en-US', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    row.append(ts, document.createTextNode(joinWords(ln)));
+    box.appendChild(row);
+  });
+  box.scrollTop = box.scrollHeight;
+}
+
+/* ---------- 音声認識 ---------- */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+function startRecognition(){
+  rec = new SR();
+  rec.lang = recLang(); rec.continuous = true; rec.interimResults = true; rec.maxAlternatives = 1;
+  committed = [];
+  rec.onresult = e => {
+    for (let i = e.resultIndex; i < e.results.length; i++){
+      const r = e.results[i];
+      const toks = segment(r[0].transcript, rec.lang);
+      const stable = r.isFinal ? toks.length : Math.max(0, toks.length - 2);
+      const done = committed[i] || 0;
+      for (let k = done; k < stable; k++) enqueue({type:'word', text:toks[k]});
+      committed[i] = Math.max(done, stable);
+      if (r.isFinal && !r._broke){ r._broke = true; enqueue({type:'break'}); }
+    }
+  };
+  rec.onerror = e => {
+    if (e.error === 'not-allowed' || e.error === 'service-not-allowed'){ showMsg(t('denied')); stop(); }
+    else if (e.error === 'network'){ showMsg(t('network')); }
+    else if (e.error === 'language-not-supported' && !isAuto()){ showMsg(langName(recLang()) + ' ×'); }
+  };
+  rec.onend = () => { if (listening) setTimeout(() => { if (listening) startRecognition(); }, 200); };
+  try{ rec.start(); }catch{}
+}
+
+/* ---------- 波形の可視化 ---------- */
+function startScope(){
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const src = audioCtx.createMediaStreamSource(stream);
+  analyser = audioCtx.createAnalyser(); analyser.fftSize = 2048;
+  src.connect(analyser);
+  startCapture(src);
+  const cv = $('#scope'), ctx = cv.getContext('2d');
+  const data = new Uint8Array(analyser.fftSize);
+  const draw = () => {
+    const dpr = devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+    if (cv.width !== w*dpr){ cv.width = w*dpr; cv.height = h*dpr; }
+    ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,w,h);
+    analyser.getByteTimeDomainData(data);
+    let sum = 0; for (const v of data){ const d = (v-128)/128; sum += d*d; }
+    const lvl = Math.min(1, Math.sqrt(sum/data.length) * 4);
+    $('#mic').style.setProperty('--lvl', (1 + lvl*0.35).toFixed(3));
+    const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+    ctx.strokeStyle = accent; ctx.lineWidth = 2; ctx.beginPath();
+    const step = data.length / w;
+    for (let x = 0; x < w; x++){ const v = (data[Math.floor(x*step)] - 128) / 128; const y = h/2 + v * h * 0.9; x ? ctx.lineTo(x,y) : ctx.moveTo(x,y); }
+    ctx.stroke();
+    raf = requestAnimationFrame(draw);
+  };
+  draw();
+}
+function idleScope(){
+  const cv = $('#scope'), ctx = cv.getContext('2d'), dpr = devicePixelRatio || 1;
+  cv.width = cv.clientWidth*dpr; cv.height = cv.clientHeight*dpr;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--line').trim();
+  ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(0, cv.clientHeight/2); ctx.lineTo(cv.clientWidth, cv.clientHeight/2); ctx.stroke();
+}
+
+/* ---------- 音声クリップ（曲照合用） ---------- */
+let cfg = {text:false, audio:false}, lastClip = null, clipRec = null;
+function startClips(){
+  if (!cfg.audio || !window.MediaRecorder) return;
+  const mime = ['audio/webm;codecs=opus','audio/webm','audio/mp4'].find(m => MediaRecorder.isTypeSupported?.(m));
+  const loop = () => {
+    if (!listening) return;
+    const chunks = [];
+    clipRec = new MediaRecorder(stream, mime ? {mimeType:mime} : undefined);
+    clipRec.ondataavailable = e => e.data.size && chunks.push(e.data);
+    clipRec.onstop = () => { if (chunks.length) lastClip = new Blob(chunks, {type:clipRec.mimeType}); loop(); };
+    clipRec.start();
+    setTimeout(() => clipRec && clipRec.state !== 'inactive' && clipRec.stop(), 9000);
+  };
+  loop();
+}
+const toB64 = blob => new Promise(res => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.readAsDataURL(blob); });
+
+/* ---------- 曲の照合 ---------- */
+let checking = false, lastCheckN = 0, lastCheckAt = 0, songPhase = 'idle', currentSong = null, currentKey = '', songFromLine = 0;
+/* サーバーなしで動く照合：歌った言葉の中に曲名が含まれているかを、公開の楽曲カタログで調べる */
+const norm = s => String(s || '').toLowerCase()
+  .replace(/[\(\[（【].*?[\)\]）】]/g, '')
+  .replace(/\s*[-–—~〜].*(remaster|version|ver\.|mix|edit|live|instrumental).*$/i, '')
+  .normalize('NFKC').replace(/[^\p{L}\p{N}]+/gu, '');
+const countIn = (hay, needle) => { let c = 0, i = 0; while ((i = hay.indexOf(needle, i)) >= 0){ c++; i += needle.length; } return c; };
+const CJK = /[぀-ヿ㐀-鿿가-힯฀-๿]/;
+function catalogSearch(term, country){
+  return new Promise(resolve => {
+    const cb = 'uk' + Math.random().toString(36).slice(2);
+    const s = document.createElement('script');
+    const done = v => { clearTimeout(timer); delete window[cb]; s.remove(); resolve(v); };
+    const timer = setTimeout(() => done([]), 8000);
+    window[cb] = d => done((d && d.results) || []);
+    s.onerror = () => done([]);
+    s.src = `https://itunes.apple.com/search?term=${q(term)}&entity=song&limit=15&country=${country}&callback=${cb}`;
+    document.head.appendChild(s);
+  });
+}
+const searched = new Set();
+async function identifyLocal(){
+  const lang = recLang().toLowerCase();
+  const country = lang.startsWith('ja') ? 'JP' : lang.startsWith('ko') ? 'KR' : lang.startsWith('zh-tw') ? 'TW' : lang.startsWith('zh') ? 'HK' : 'US';
+  const all = norm(joinWords(words));
+  const recent = words.slice(-24);
+  // 繰り返し歌われたフレーズ（サビ）を優先して検索語を作る
+  const cands = new Map();
+  for (let n = 4; n >= 1; n--){
+    for (let i = 0; i + n <= recent.length; i++){
+      const phrase = joinWords(recent.slice(i, i + n));
+      const key = norm(phrase);
+      const minLen = CJK.test(key) ? 2 : 4;
+      if (key.length < minLen || cands.has(key) || searched.has(country + key)) continue;
+      const rep = countIn(all, key);
+      cands.set(key, {phrase, score: rep * 3 + n + key.length / 6});
+    }
+  }
+  const picks = [...cands.entries()].sort((a,b) => b[1].score - a[1].score).slice(0, 4);
+  let best = null;
+  for (const [key, c] of picks){
+    searched.add(country + key);
+    const results = await catalogSearch(c.phrase, country);
+    results.forEach((r, idx) => {
+      const tn = norm(r.trackName);
+      if (!tn || tn.length < (CJK.test(tn) ? 2 : 3)) return;
+      const occ = countIn(all, tn);
+      if (!occ) return;
+      const artistHit = norm(r.artistName) && all.includes(norm(r.artistName)) ? 0.15 : 0;
+      const conf = Math.min(0.97, 0.45 + Math.min(occ, 4) * 0.08 + Math.min(tn.length, 12) * 0.02 + artistHit - idx * 0.01);
+      if (!best || conf > best.confidence){
+        best = {
+          match: true, confidence: conf, title: r.trackName, artist: r.artistName, album: r.collectionName,
+          year: (r.releaseDate || '').slice(0, 4), genre: r.primaryGenreName,
+          artwork: r.artworkUrl100 ? r.artworkUrl100.replace('100x100', '300x300') : '',
+          links: { apple: r.trackViewUrl }
+        };
+      }
+    });
+    if (best && best.confidence >= 0.8) break;
+  }
+  return best || {match: false};
+}
+
+async function maybeIdentify(){
+  if (checking || songPhase === 'thinking') return;
+  const now = Date.now();
+  if (words.length - lastCheckN < 8 || now - lastCheckAt < 6000) return;
+  checking = true; lastCheckN = words.length; lastCheckAt = now;
+  try{
+    let j;
+    if (cfg.text || cfg.audio){
+      const body = {text: joinWords(words.slice(-90)), lang: recLang(), ui};
+      if (cfg.audio && lastClip){ body.audio = await toB64(lastClip); body.mime = lastClip.type; }
+      const r = await fetch('api/identify', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(body)});
+      if (!r.ok) return;
+      j = await r.json();
+    } else {
+      j = await identifyLocal();
+    }
+    if (j.match && j.confidence >= 0.6 && j.title){
+      const key = (j.title + '|' + j.artist).toLowerCase();
+      if (key !== currentKey) think(j, key);
+    }
+  }catch{} finally{ checking = false; }
+}
+function think(song, key){
+  songPhase = 'thinking';
+  const body = $('#songBody');
+  body.innerHTML = `<div class="ring-wrap reveal"><svg class="ring" viewBox="0 0 54 54"><circle class="bgc" cx="27" cy="27" r="24"/><circle class="fg" cx="27" cy="27" r="24"/><text x="27" y="32" text-anchor="middle" id="cnt">5</text></svg><strong></strong></div>`;
+  body.querySelector('strong').textContent = t('matching');
+  requestAnimationFrame(() => body.querySelector('.ring').classList.add('go'));
+  let n = 5;
+  const iv = setInterval(() => { n--; const c = $('#cnt'); if (c) c.textContent = Math.max(n,0); }, 1000);
+  setTimeout(() => {
+    clearInterval(iv);
+    currentSong = song; currentKey = key; songPhase = 'shown';
+    songFromLine = Math.max(0, logLines.length - 4);
+    renderSong(song);
+  }, 5000);
+}
+const q = s => encodeURIComponent(s);
+function link(href, label, cls){ const a = document.createElement('a'); a.href = href; a.target = '_blank'; a.rel = 'noopener'; a.textContent = label; if (cls) a.className = cls; return a; }
+function renderSong(s){
+  const body = $('#songBody'); body.innerHTML = '';
+  const box = document.createElement('div'); box.className = 'reveal'; box.style.cssText = 'display:flex;flex-direction:column;gap:12px';
+  const h = document.createElement('h2'); h.className = 'song-title'; h.textContent = s.title;
+  const a = document.createElement('p'); a.className = 'song-artist'; a.textContent = s.artist || '';
+  if (s.artwork){ const img = document.createElement('img'); img.src = s.artwork; img.alt = ''; img.width = 300; img.height = 300; img.style.cssText = 'width:100%;max-width:220px;height:auto;border-radius:10px'; box.append(img); }
+  box.append(h, a);
+  const metaBits = [s.year && `${t('year')} ${s.year}`, s.album, s.genre, s.language].filter(Boolean);
+  if (metaBits.length){ const m = document.createElement('span'); m.className = 'meta'; m.textContent = metaBits.join(' · '); box.append(m); }
+  if (s.summary){ const p = document.createElement('p'); p.className = 'summary'; p.textContent = s.summary; box.append(p); }
+  if (s.themes?.length){ const tg = document.createElement('div'); tg.className = 'tags'; s.themes.slice(0,5).forEach(x => { const sp = document.createElement('span'); sp.textContent = x; tg.append(sp); }); box.append(tg); }
+  const term = `${s.title} ${s.artist || ''}`.trim();
+  const links = document.createElement('div'); links.className = 'links';
+  links.append(
+    link(s.links?.youtube || `https://www.youtube.com/results?search_query=${q(term)}`, t('listen'), 'primary'),
+    link(s.links?.spotify || `https://open.spotify.com/search/${q(term)}`, 'Spotify'),
+    link(s.links?.apple || `https://music.apple.com/search?term=${q(term)}`, 'Apple Music'),
+    link(`https://www.google.com/search?q=${q(term + (ui === 'ja' ? ' 歌詞' : ' lyrics'))}`, t('lyrics')),
+    link(`https://genius.com/search?q=${q(term)}`, 'Genius')
+  );
+  box.append(links);
+  const yl = document.createElement('div'); yl.className = 'your-lyrics'; yl.id = 'yourLyrics';
+  box.append(yl);
+  body.append(box);
+  renderYourLyrics();
+}
+function renderYourLyrics(){
+  const yl = $('#yourLyrics'); if (!yl) return;
+  yl.innerHTML = '';
+  const e = document.createElement('span'); e.className = 'eyebrow'; e.textContent = t('yourLyrics'); yl.append(e);
+  logLines.slice(songFromLine).filter(l => l.length).forEach(l => { const p = document.createElement('p'); p.textContent = joinWords(l); yl.append(p); });
+  yl.scrollTop = yl.scrollHeight;
+}
+
+/* ---------- 歌から言語を自動判定 ---------- */
+let ring = [], ringLen = 0, srcRate = 48000, procNode = null, detectIv = 0, lastDet = '', detStreak = 0, asrP = null;
+function startCapture(src){
+  ring = []; ringLen = 0; srcRate = audioCtx.sampleRate;
+  try{
+    procNode = audioCtx.createScriptProcessor(4096, 1, 1);
+    procNode.onaudioprocess = e => {
+      const d = new Float32Array(e.inputBuffer.getChannelData(0));
+      ring.push(d); ringLen += d.length;
+      while (ringLen > srcRate * 9){ ringLen -= ring.shift().length; }
+    };
+    const mute = audioCtx.createGain(); mute.gain.value = 0;
+    src.connect(procNode); procNode.connect(mute); mute.connect(audioCtx.destination);
+  }catch{ procNode = null; }
+}
+function lastSeconds(sec){
+  const need = Math.min(ringLen, Math.floor(srcRate * sec)), out = new Float32Array(need);
+  let off = need;
+  for (let i = ring.length - 1; i >= 0 && off > 0; i--){
+    const c = ring[i], take = Math.min(c.length, off);
+    out.set(c.subarray(c.length - take), off - take); off -= take;
+  }
+  return out;
+}
+function to16k(x){
+  const r = srcRate / 16000, n = Math.floor(x.length / r), o = new Float32Array(n);
+  for (let i = 0; i < n; i++){
+    const a = Math.floor(i * r), b = Math.min(x.length, Math.floor((i + 1) * r));
+    let s = 0; for (let j = a; j < b; j++) s += x[j];
+    o[i] = s / Math.max(1, b - a);
+  }
+  return o;
+}
+const WHISPER_CODES = ['en','zh','de','es','ru','ko','fr','ja','pt','tr','pl','ca','nl','ar','sv','it','id','hi','fi','vi','he','uk','el','ms','cs','ro','da','hu','ta','no','th','ur','hr','bg','lt','la','mi','ml','cy','sk','te','fa','lv','bn','sr','az','sl','kn','et','mk','br','eu','is','hy','ne','mn','bs','kk','sq','sw','gl','mr','pa','si','km','sn','yo','so','af','oc','ka','be','tg','sd','gu','am','yi','lo','uz','fo','ht','ps','tk','nn','mt','sa','lb','my','bo','tl','mg','as','tt','haw','ln','ha','ba','jw','su','yue'];
+const WHISPER_TO_LOCALE = {en:'en-US',zh:'cmn-Hans-CN',yue:'yue-Hant-HK',pt:'pt-BR',ar:'ar-SA',no:'nb-NO',nn:'nb-NO',ur:'ur-PK',bn:'bn-IN',pa:'pa-Guru-IN',sw:'sw-KE',tl:'fil-PH',jw:'jv-ID',ta:'ta-IN',es:'es-ES',fr:'fr-FR',de:'de-DE',it:'it-IT',nl:'nl-NL'};
+const whisperToLocale = c => WHISPER_TO_LOCALE[c] || LANGS.find(l => l !== 'auto' && l.split('-')[0] === c) || null;
+function loadDetector(){
+  if (!asrP){
+    asrP = (async () => {
+      const tf = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.2/dist/transformers.min.js');
+      const id = 'Xenova/whisper-tiny';
+      const [processor, tokenizer, model] = await Promise.all([
+        tf.AutoProcessor.from_pretrained(id),
+        tf.AutoTokenizer.from_pretrained(id),
+        tf.WhisperForConditionalGeneration.from_pretrained(id)
+      ]);
+      const langIds = WHISPER_CODES.map(c => [c, tokenizer.model.tokens_to_ids.get(`<|${c}|>`)]).filter(([, v]) => typeof v === 'number');
+      const sot = tokenizer.model.tokens_to_ids.get('<|startoftranscript|>') ?? 50258;
+      return {tf, processor, model, langIds, sot};
+    })();
+    asrP.catch(() => { asrP = null; });
+  }
+  return asrP;
+}
+/* 音声から直接、歌っている言語を判定（文字化はせず、言語だけを見る） */
+async function detectLangFromAudio(audio16k){
+  const {tf, processor, model, langIds, sot} = await loadDetector();
+  const {input_features} = await processor(audio16k);
+  const decoder_input_ids = new tf.Tensor('int64', BigInt64Array.from([BigInt(sot)]), [1, 1]);
+  const out = await model({input_features, decoder_input_ids});
+  const logits = out.logits.data, V = out.logits.dims.at(-1), base = logits.length - V;
+  let max = -Infinity; for (const [, i] of langIds) max = Math.max(max, logits[base + i]);
+  let sum = 0; const scores = langIds.map(([c, i]) => { const e = Math.exp(logits[base + i] - max); sum += e; return [c, e]; });
+  scores.sort((x, y) => y[1] - x[1]);
+  return {code: scores[0][0], prob: scores[0][1] / sum};
+}
+async function detectOnce(){
+  if (!listening || !isAuto() || detectBusy || !procNode) return;
+  const chunk = lastSeconds(6);
+  if (chunk.length < srcRate * 3) return;
+  let e = 0; for (let i = 0; i < chunk.length; i += 4) e += chunk[i] * chunk[i];
+  if (Math.sqrt(e / (chunk.length / 4)) < 0.01) return;   // 無音のときは判定しない
+  detectBusy = true;
+  try{
+    const {code, prob} = await detectLangFromAudio(to16k(chunk));
+    const lang = whisperToLocale(code);
+    if (!lang || prob < 0.4) return;
+    detStreak = lang === lastDet ? detStreak + 1 : 1; lastDet = lang;
+    if (lang !== autoLang && (detStreak >= 2 || (!detectedOnce && prob >= 0.75))){
+      autoLang = lang;
+      enqueue({type:'break'});
+      if (listening && rec){ try{ rec.stop(); }catch{} }   // 新しい言語で聞き直す
+    }
+    if (lang === autoLang) detectedOnce = true;
+  }catch(err){ console.warn(err); } finally{ detectBusy = false; updateBadge(); }
+}
+function startDetect(){
+  clearInterval(detectIv);
+  detectedOnce = false; detStreak = 0; lastDet = '';
+  if (isAuto()){ loadDetector().catch(() => {}); detectIv = setInterval(detectOnce, 3000); }
+  updateBadge();
+}
+
+/* ---------- 開始・停止 ---------- */
+function showMsg(m){ const el = $('#msg'); el.textContent = m; el.hidden = !m; }
+async function start(){
+  showMsg('');
+  if (/github\.com$|githubusercontent\.com$/.test(location.hostname)){ showMsg(t('github')); return; }
+  if (!window.isSecureContext){ showMsg(t('insecure')); return; }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){ showMsg(IN_APP ? t('inapp') : t('nomedia')); return; }
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true, noiseSuppression:false, autoGainControl:true}});
+  }catch(err){
+    const n = err && err.name;
+    showMsg(n === 'NotFoundError' || n === 'OverconstrainedError' ? t('nomic') : n === 'NotReadableError' ? t('nomic') : IN_APP ? t('inapp') : t('denied'));
+    return;
+  }
+  listening = true; setUI();
+  startScope();
+  if (SR) startRecognition(); else showMsg(t('unsupported'));
+  startClips(); startDetect();
+}
+const IN_APP = /Line\/|FBAN|FBAV|Instagram|Twitter|TikTok|MicroMessenger|KAKAOTALK/i.test(navigator.userAgent);
+function stop(){
+  listening = false; setUI();
+  try{ rec && rec.stop(); }catch{}
+  try{ clipRec && clipRec.state !== 'inactive' && clipRec.stop(); }catch{}
+  stream?.getTracks().forEach(tr => tr.stop());
+  clearInterval(detectIv); try{ procNode && procNode.disconnect(); }catch{} procNode = null;
+  cancelAnimationFrame(raf); audioCtx?.close(); audioCtx = null;
+  $('#mic').style.setProperty('--lvl', 1); idleScope();
+}
+function setUI(){
+  $('#mic').classList.toggle('on', listening);
+  $('#mic').setAttribute('aria-label', listening ? t('stop') : t('start'));
+  $('#status').classList.toggle('live', listening);
+  $('#micLabel').textContent = listening ? t('stop') : t('start');
+  $('#statusText').textContent = listening ? t('listening') : t('paused');
+  updateBadge();
+}
+
+$('#mic').addEventListener('click', () => listening ? stop() : start());
+$('#recLang').addEventListener('change', e => {
+  store.set('utakoe-lang', e.target.value);
+  if (listening){ startDetect(); try{ rec && rec.stop(); }catch{} }
+  updateBadge();
+});
+$('#uiToggle').addEventListener('click', () => { ui = ui === 'ja' ? 'en' : 'ja'; store.set('utakoe-ui', ui); applyText(); setUI(); });
+$('#copyBtn').addEventListener('click', async () => {
+  const text = logLines.filter(l => l.length).map(joinWords).join('\n');
+  try{ await navigator.clipboard.writeText(text); const b = $('#copyBtn'); b.textContent = t('copied'); setTimeout(() => b.textContent = t('copy'), 1500); }catch{}
+});
+$('#clearBtn').addEventListener('click', () => {
+  words.length = 0; logLines.length = 0; logLines.push([]); logTimes = []; currentLine = null; queue.length = 0;
+  lastCheckN = 0; currentKey = ''; currentSong = null; songPhase = 'idle';
+  $('#lyrics').innerHTML = `<p class="placeholder" id="placeholder">${t('idleStage')}</p>`;
+  $('#songBody').innerHTML = `<p class="song-idle">${t('songIdle')}</p>`;
+  renderLog();
+});
+
+applyText(); setUI(); idleScope();
+if (/github\.com$|githubusercontent\.com$/.test(location.hostname)) showMsg(t('github'));
+else if (!window.isSecureContext) showMsg(t('insecure'));
+else if (IN_APP) showMsg(t('inapp'));
+else if (navigator.permissions?.query){
+  navigator.permissions.query({name:'microphone'}).then(p => { if (p.state === 'denied') showMsg(t('denied')); }).catch(() => {});
+}
+addEventListener('resize', () => { if (!listening) idleScope(); });
+fetch('api/config').then(r => r.ok ? r.json() : null).then(c => { if (c) cfg = c; }).catch(() => {});
+})();
+</script>
+</body>
+</html>
