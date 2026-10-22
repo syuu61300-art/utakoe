@@ -206,7 +206,7 @@ const $ = s => document.querySelector(s);
 /* ---------- 表示文言 ---------- */
 const T = {
   ja: {
-    tagline:'あなたの歌声を、一語ずつ文字に。', mix:'日本語＋英語（ミックス）', recLang:'歌の言語',
+    tagline:'あなたの歌声を、一語ずつ文字に。', mix:'日本語＋英語（ミックス）', bnMix:'ベンガル語＋英語（ミックス）', banglish:'ベンガル語（英字表記・Banglish）', netFail:'検索サービスに接続できません。通信状態を確認してください', recLang:'歌の言語',
     idleStage:'マイクを押して、歌うか話してください。声が一語ずつここに現れます。',
     start:'歌いはじめる', stop:'止める', listening:'聞いています', paused:'停止中',
     unsupported:'このブラウザは音声の文字化に対応していません。Chrome か Edge で開いてください（波形の表示だけ動きます）。',
@@ -224,7 +224,7 @@ const T = {
     log:'記録', habits:'覚えたくせ', habitsReset:'くせを全部忘れる', fixTitle:'正しい言葉に直す', fixSave:'直して覚える', fixDelete:'この語を消す', fixCancel:'やめる', fixHint:'次から同じ聞き間違いを自動で直します', notFound:'候補が見つかりません。歌い続けると探し続けます', copy:'コピー', copied:'コピーしました', clear:'消去', auto:'自動判定（歌から言語を判定）'
   },
   en: {
-    tagline:'Your singing, word by word.', mix:'Japanese + English (mixed)', recLang:'Language',
+    tagline:'Your singing, word by word.', mix:'Japanese + English (mixed)', bnMix:'Bengali + English (mixed)', banglish:'Bengali in Latin letters (Banglish)', netFail:'Cannot reach the search service. Check your connection', recLang:'Language',
     idleStage:'Press the mic and sing or speak. Your words will appear here one at a time.',
     start:'Start singing', stop:'Stop', listening:'Listening', paused:'Stopped',
     unsupported:'This browser cannot turn speech into text. Open the page in Chrome or Edge (only the waveform works here).',
@@ -242,7 +242,7 @@ const T = {
     log:'Transcript', habits:'Learned fixes', habitsReset:'Forget all fixes', fixTitle:'Fix this word', fixSave:'Fix and remember', fixDelete:'Delete this word', fixCancel:'Cancel', fixHint:'The same mishearing will be fixed automatically next time', notFound:'No match yet. Keep singing and the search continues', copy:'Copy', copied:'Copied', clear:'Clear', auto:'Auto-detect (from your singing)'
   }
 };
-const LANGS = ['auto','ja-JP','ja+en','en-US','en-GB','en-AU','en-CA','en-IN','en-IE','en-NZ','en-PH','en-SG','en-ZA','en-KE','en-NG','en-GH','en-TZ','en-PK','en-HK',
+const LANGS = ['auto','ja-JP','ja+en','en-US','bn-BD','bn-IN','bn+en','bn-latn','en-GB','en-AU','en-CA','en-IN','en-IE','en-NZ','en-PH','en-SG','en-ZA','en-KE','en-NG','en-GH','en-TZ','en-PK','en-HK',
   'ko-KR','cmn-Hans-CN','cmn-Hant-TW','yue-Hant-HK',
   'es-ES','es-MX','es-US','es-AR','es-BO','es-CL','es-CO','es-CR','es-DO','es-EC','es-GT','es-HN','es-NI','es-PA','es-PE','es-PR','es-PY','es-SV','es-UY','es-VE',
   'fr-FR','fr-CA','fr-BE','fr-CH','de-DE','de-AT','de-CH','it-IT','it-CH','pt-BR','pt-PT','nl-NL','nl-BE',
@@ -251,7 +251,7 @@ const LANGS = ['auto','ja-JP','ja+en','en-US','en-GB','en-AU','en-CA','en-IN','e
   'tr-TR','az-AZ','ka-GE','hy-AM','kk-KZ','uz-UZ','ky-KG','tg-TJ','tk-TM','mn-MN',
   'ar-SA','ar-AE','ar-EG','ar-MA','ar-DZ','ar-TN','ar-LY','ar-IQ','ar-JO','ar-KW','ar-LB','ar-QA','ar-BH','ar-OM','ar-YE','ar-SY','ar-PS','ar-IL',
   'he-IL','fa-IR','ps-AF','ku-IQ','ur-PK','ur-IN',
-  'hi-IN','bn-IN','bn-BD','pa-Guru-IN','gu-IN','mr-IN','ta-IN','ta-LK','ta-SG','ta-MY','te-IN','kn-IN','ml-IN','or-IN','as-IN','ne-NP','si-LK',
+  'hi-IN','pa-Guru-IN','gu-IN','mr-IN','ta-IN','ta-LK','ta-SG','ta-MY','te-IN','kn-IN','ml-IN','or-IN','as-IN','ne-NP','si-LK',
   'th-TH','vi-VN','id-ID','ms-MY','fil-PH','jv-ID','su-ID','km-KH','lo-LA','my-MM',
   'am-ET','sw-KE','sw-TZ','zu-ZA','xh-ZA','af-ZA','st-ZA','so-SO','yo-NG','ig-NG','ha-NG','rw-RW','mg-MG','haw-US','mi-NZ','sm-WS','to-TO'];
 const dispTag = c => c.replace(/^cmn-Hans-/, 'zh-Hans-').replace(/^cmn-Hant-/, 'zh-Hant-').replace(/^yue-Hant-/, 'yue-').replace(/^pa-Guru-/, 'pa-');
@@ -292,14 +292,14 @@ function applyText(){
   $('#statusText').textContent = listening ? t('listening') : t('paused');
   const sel = $('#recLang'), cur = sel.value || store.get('utakoe-lang') || 'auto';
   sel.innerHTML = '';
-  LANGS.forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = v === 'auto' ? t('auto') : v === 'ja+en' ? t('mix') : langLabel(v); sel.appendChild(o); });
+  LANGS.forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = v === 'auto' ? t('auto') : v === 'ja+en' ? t('mix') : v === 'bn+en' ? t('bnMix') : v === 'bn-latn' ? t('banglish') : langLabel(v); sel.appendChild(o); });
   sel.value = LANGS.includes(cur) ? cur : 'auto';
   updateBadge();
   if (currentSong && songPhase === 'shown') renderSong(currentSong);
 }
 const isAuto = () => $('#recLang').value === 'auto';
-const recLang = () => { const v = $('#recLang').value; return v === 'auto' ? autoLang : v === 'ja+en' ? 'ja-JP' : v; };
-const isMix = () => $('#recLang').value === 'ja+en';
+const recLang = () => { const v = $('#recLang').value; return v === 'auto' ? autoLang : v === 'ja+en' ? 'ja-JP' : (v === 'bn+en' || v === 'bn-latn') ? 'bn-BD' : v; };
+const langMode = () => { const v = $('#recLang').value; return v === 'ja+en' ? 'jaMix' : v === 'bn+en' ? 'bnMix' : v === 'bn-latn' ? 'banglish' : (v === 'auto' && /^bn/.test(autoLang)) ? 'bnMix' : null; };
 let detectBusy = false, detectedOnce = false;
 function updateBadge(){
   const b = $('#autoBadge'); if (!b) return;
@@ -369,6 +369,71 @@ function mixTokens(toks){
     else out.push(tk);
   }
   return out.map(x => String(x));
+}
+
+/* ---------- ベンガル語：英字表記（Banglish）への変換と、ベンガル文字に化けた英語の復元 ---------- */
+const BN_V = {'অ':'o','আ':'a','ই':'i','ঈ':'i','উ':'u','ঊ':'u','ঋ':'ri','এ':'e','ঐ':'oi','ও':'o','ঔ':'ou'};
+const BN_S = {'া':'a','ি':'i','ী':'i','ু':'u','ূ':'u','ৃ':'ri','ে':'e','ৈ':'oi','ো':'o','ৌ':'ou','ৗ':'ou'};
+const BN_C = {'ক':'k','খ':'kh','গ':'g','ঘ':'gh','ঙ':'ng','চ':'ch','ছ':'chh','জ':'j','ঝ':'jh','ঞ':'n','ট':'t','ঠ':'th','ড':'d','ঢ':'dh','ণ':'n','ত':'t','থ':'th','দ':'d','ধ':'dh','ন':'n','প':'p','ফ':'f','ব':'b','ভ':'bh','ম':'m','য':'j','র':'r','ল':'l','শ':'sh','ষ':'sh','স':'s','হ':'h','ড়':'r','ঢ়':'rh','য়':'y','ৎ':'t'};
+const BN_NUKTA = {'ড':'r','ঢ':'rh','য':'y'};
+const BN_X = {'ং':'ng','ঃ':'h','ঁ':'','‍':'','‌':''};
+const BN_D = '০১২৩৪৫৬৭৮৯';
+const isBn = x => /[ঀ-৿]/.test(x);
+function bnToLatin(w){
+  let out = '';
+  const chars = [...w];
+  for (let i = 0; i < chars.length; i++){
+    const ch = chars[i];
+    if (BN_C[ch] !== undefined){
+      let base = BN_C[ch];
+      if (chars[i+1] === '়' && BN_NUKTA[ch]){ base = BN_NUKTA[ch]; i++; }
+      // 前の子音とつながる য（য-ফলা）は y
+      if (ch === 'য' && chars[i-1] === '্') base = 'y';
+      out += base;
+      const nx = chars[i+1];
+      if (nx === '্' || BN_S[nx] !== undefined) continue;     // 母音記号か、母音なし
+      // 子音に付く「o」の音：語末では付けない
+      const rest = chars.slice(i + 1).filter(c => !['ঁ','\u200d','\u200c'].includes(c));
+      if (rest.length === 0 && i > 0) continue;
+      out += 'o';
+    } else if (BN_V[ch] !== undefined) out += BN_V[ch];
+    else if (BN_S[ch] !== undefined) out += BN_S[ch];
+    else if (BN_X[ch] !== undefined) out += BN_X[ch];
+    else if (ch === '্') continue;
+    else if (BN_D.includes(ch)) out += BN_D.indexOf(ch);
+    else if (ch === '।') out += '.';
+    else out += ch;
+  }
+  return out;
+}
+const BN_EN = new Map(Object.entries({
+  'লাভ':'love','বেবি':'baby','বেবী':'baby','মিউজিক':'music','গার্ল':'girl','বয়':'boy','পার্টি':'party','ড্যান্স':'dance','সং':'song','লাইফ':'life',
+  'ড্রিম':'dream','ড্রিমস':'dreams','হার্ট':'heart','ফিলিং':'feeling','ফিলিংস':'feelings','সরি':'sorry','প্লিজ':'please','ফ্রেন্ড':'friend','ফ্রেন্ডস':'friends',
+  'ফোন':'phone','টাইম':'time','মানি':'money','স্টাইল':'style','কুল':'cool','হ্যাপি':'happy','স্যাড':'sad','লোনলি':'lonely','মিস':'miss','ওকে':'okay',
+  'ইয়েস':'yes','নো':'no','বেস্ট':'best','স্টার':'star','নাইট':'night','লাইট':'light','ফায়ার':'fire','রক':'rock','র‍্যাপ':'rap','র্যাপ':'rap','বিট':'beat',
+  'বিটস':'beats','ভাইব':'vibe','ভাইবস':'vibes','রিয়েল':'real','রিয়াল':'real','ফেক':'fake','ব্রো':'bro','গ্যাং':'gang','হাই':'hi','হ্যালো':'hello',
+  'ডার্লিং':'darling','হানি':'honey','সুইট':'sweet','সুইটহার্ট':'sweetheart','কিস':'kiss','ক্রাশ':'crush','ব্রেকআপ':'breakup','ফরএভার':'forever',
+  'নেভার':'never','ওয়ান':'one','ইউ':'you','মি':'me','আই':'I','মাই':'my','ইয়োর':'your','ড্রাইভ':'drive','কার':'car','রোড':'road','সিটি':'city',
+  'স্ট্রিট':'street','ক্লাব':'club','ড্রিংক':'drink','স্মোক':'smoke','ফ্লাই':'fly','স্কাই':'sky','মুন':'moon','রেইন':'rain','ড্যাডি':'daddy',
+  'কুইন':'queen','কিং':'king','বস':'boss','হিরো':'hero','গেম':'game','প্লেয়ার':'player','স্টেজ':'stage','মাইক':'mic','শো':'show','ভিডিও':'video',
+  'ক্যামেরা':'camera','ফটো':'photo','সেলফি':'selfie','ইনস্টা':'Insta','ফেসবুক':'Facebook','ইউটিউব':'YouTube','টিকটক':'TikTok','ভাইরাল':'viral',
+  'ট্রেন্ড':'trend','ফ্যান':'fan','হেটার':'hater','হেটার্স':'haters','লাইক':'like','শেয়ার':'share','স্টোরি':'story','মেমোরি':'memory','ফিউচার':'future',
+  'পাওয়ার':'power','রাইড':'ride','গুড':'good','ব্যাড':'bad','ক্রেজি':'crazy','ওয়াইল্ড':'wild','ফ্রি':'free','ফ্লো':'flow','রাইম':'rhyme',
+  'হিপহপ':'hip-hop','ব্যান্ড':'band','গিটার':'guitar','ড্রাম':'drum','পিয়ানো':'piano','স্পিড':'speed','গোল্ড':'gold','চেইন':'chain','ডায়মন্ড':'diamond',
+  'ব্র্যান্ড':'brand','মাইন্ড':'mind','সোল':'soul','গড':'god','হেভেন':'heaven','পেইন':'pain','স্মাইল':'smile','টুনাইট':'tonight','টুডে':'today'
+}).map(([k, v]) => [k.normalize('NFC'), v]));
+// mode: 'bnMix' = ベンガル文字のまま英語だけ戻す / 'banglish' = すべて英字に
+function bnTokens(toks, mode){
+  return toks.map(tk => {
+    const en = BN_EN.get(String(tk).normalize('NFC'));
+    if (en) return en;
+    return mode === 'banglish' && isBn(tk) ? bnToLatin(String(tk).normalize('NFC')) : tk;
+  });
+}
+function convertTokens(toks, mode){
+  if (mode === 'jaMix') return mixTokens(toks);
+  if (mode === 'bnMix' || mode === 'banglish') return bnTokens(toks, mode);
+  return toks;
 }
 
 const NOSPACE = /[぀-ヿ㐀-鿿豈-﫿฀-๿가-힯ｦ-ﾟ]/;
@@ -520,7 +585,7 @@ function startRecognition(){
   if (!SR || !listening || srBlocked || recActive || recStarting) return;
   recStarting = true; recStartAt = performance.now();
   const r = new SR();
-  const S = {results: [], sched: [], shown: [], broke: [], lang: recLang(), mix: isMix()};
+  const S = {results: [], sched: [], shown: [], broke: [], lang: recLang(), mode: langMode()};
   r._S = S;
   r.lang = recLang(); r.continuous = true; r.interimResults = true; r.maxAlternatives = 1;
   r.onstart = () => { if (r === rec){ recActive = true; recStarting = false; } };
@@ -531,7 +596,7 @@ function startRecognition(){
     for (let i = e.resultIndex; i < e.results.length; i++){
       const res = e.results[i];
       let toks = segment(res[0].transcript, r.lang);
-      if (S.mix) toks = mixTokens(toks);
+      toks = convertTokens(toks, S.mode);
       S.results[i] = {toks, final: res.isFinal};
       // 途中結果は最後の1語だけ保留（いちばん変わりやすいため）。ほかは1秒後の表示時点で最新に置き換わる
       const target = res.isFinal ? toks.length : Math.max(0, toks.length - 1);
@@ -671,10 +736,11 @@ let songPhase = 'idle', currentSong = null, currentKey = '', songFromLine = 0;
 const norm = s => String(s || '').toLowerCase()
   .replace(/[\(\[（【].*?[\)\]）】]/g, '')
   .replace(/\s*[-–—~〜].*(remaster|version|ver\.|mix|edit|live|instrumental).*$/i, '')
-  .normalize('NFKC').replace(/[^\p{L}\p{N}]+/gu, '');
+  .normalize('NFKC').replace(/[^\p{L}\p{M}\p{N}]+/gu, '');
 const countIn = (hay, needle) => { let c = 0, i = 0; while ((i = hay.indexOf(needle, i)) >= 0){ c++; i += needle.length; } return c; };
 const CJK = /[぀-ヿ㐀-鿿가-힯฀-๿]/;
 /* ---------- ネット検索（検索候補・曲カタログ） ---------- */
+let netOk = 0, netFailN = 0, netState = 'unknown';
 function jsonp(url, timeout = 6000){
   return new Promise(resolve => {
     const cb = 'uk' + Math.random().toString(36).slice(2);
@@ -682,8 +748,8 @@ function jsonp(url, timeout = 6000){
     let fin = false;
     const done = v => { if (fin) return; fin = true; clearTimeout(tm); window[cb] = () => {}; setTimeout(() => { try{ delete window[cb]; }catch{} }, 15000); el.remove(); resolve(v); };
     const tm = setTimeout(() => done(null), timeout);
-    window[cb] = d => done(d);
-    el.onerror = () => done(null);
+    window[cb] = d => { netOk++; netState = 'ok'; done(d); };
+    el.onerror = () => { netFailN++; if (!netOk) netState = 'down'; done(null); };
     el.src = url + (url.includes('?') ? '&' : '?') + 'callback=' + cb;
     document.head.appendChild(el);
   });
@@ -693,6 +759,7 @@ const countryOf = lang => {
   const l = lang.toLowerCase();
   if (l.startsWith('ja')) return 'JP';
   if (l.startsWith('ko')) return 'KR';
+  if (l.startsWith('bn')) return 'IN';
   if (/hant-tw|zh-tw/.test(l)) return 'TW';
   if (l.startsWith('yue')) return 'HK';
   if (/^(cmn|zh)/.test(l)) return 'CN';
@@ -710,10 +777,18 @@ async function suggest(text, lang){
 }
 const catCache = new Map();
 async function catalogSearch(term, country){
-  const key = country + '|' + term;
+  const key = 'it|' + country + '|' + term;
   if (catCache.has(key)) return catCache.get(key);
   const d = await jsonp(`https://itunes.apple.com/search?term=${q(term)}&entity=song&limit=8&country=${country}`, 8000);
   const arr = (d && d.results) || [];
+  if (d) catCache.set(key, arr);
+  return arr;
+}
+async function deezerSearch(term){
+  const key = 'dz|' + term;
+  if (catCache.has(key)) return catCache.get(key);
+  const d = await jsonp(`https://api.deezer.com/search?q=${q(term)}&limit=8&output=jsonp`, 8000);
+  const arr = (d && d.data) || [];
   if (d) catCache.set(key, arr);
   return arr;
 }
@@ -727,7 +802,7 @@ function editDist(a, b){
   }
   return prev[n];
 }
-const LYRIC_WORDS = /\s*(歌詞付き|歌詞|lyrics?|歌ってみた|cover|カバー|karaoke|カラオケ|official|mv|pv|フル|full|가사|歌词)\s*/gi;
+const LYRIC_WORDS = /\s*(歌詞付き|歌詞|lyrics?|lyrical|bangla lyrics|গান|song|歌ってみた|cover|カバー|karaoke|カラオケ|official|mv|pv|フル|full|가사|歌词)\s*/gi;
 const stripLyricWords = x => x.replace(LYRIC_WORDS, ' ').replace(/\s+/g, ' ').trim();
 
 /* ---------- 聞き取れなかった言葉を、近い言葉・文章に直す ---------- */
@@ -754,7 +829,7 @@ async function runNear(){
     }
     if (best && bestD > 0 && bestD <= 0.34){
       let toks = segment(best, S.lang);
-      if (S.mix) toks = mixTokens(toks);
+      toks = convertTokens(toks, S.mode);
       const shownN = S.sched[i] || 0;
       if (shownN > 0 && toks.length > shownN) toks = toks.slice(0, shownN - 1).concat(joinWords(toks.slice(shownN - 1)));
       R.toks = toks;
@@ -764,40 +839,57 @@ async function runNear(){
 }
 
 /* ---------- 曲の自動検索：歌い始めて5〜15秒で、候補と％を出す ---------- */
-let segStartAt = 0, segStartIdx = 0, lastWordAt = 0, searchBusy = false, lastSearchAt = 0, songTick = 0;
+let segStartAt = 0, segStartIdx = 0, segStartLine = 0, lastWordAt = 0, searchBusy = false, lastSearchAt = 0, songTick = 0;
 const pool = new Map();          // ネットの検索候補（出現回数）
+const tailPool = new Map();      // 検索候補のうち、歌った言葉の「続き」の部分（曲名・歌手名のことが多い）
 let cands = new Map();           // 曲の候補
 function addPool(list){ list.forEach(x => { const k = stripLyricWords(x); if (k) pool.set(k, (pool.get(k) || 0) + 1); }); }
-function resetSegment(){ segStartAt = performance.now(); segStartIdx = words.length; lastSearchAt = 0; pool.clear(); cands = new Map(); renderPredict([]); }
+function resetSegment(){ segStartAt = performance.now(); segStartIdx = words.length; segStartLine = Math.max(0, logLines.length - 1); lastSearchAt = 0; pool.clear(); tailPool.clear(); cands = new Map(); renderPredict([]); }
 function onWordShown(){
   const now = performance.now();
   if ((!segStartAt || now - lastWordAt > 8000) && songPhase !== 'thinking') resetSegment();   // 8秒以上あいたら新しい曲として探し直す
   lastWordAt = now;
 }
+const minTitle = tn => CJK.test(tn) || isBn(tn) ? 2 : 3;
 function scoreCands(){
   const segText = norm(joinWords(words.slice(segStartIdx)));
+  const segLatin = norm(bnToLatin(joinWords(words.slice(segStartIdx))));
   const pl = [...pool.entries()].map(([k, c]) => [norm(k), c]);
   for (const c of cands.values()){
     const tn = norm(c.title), an = norm(c.artist);
     // 「カタログに出てきた」だけでは候補にしない。曲名がネットの検索候補か、歌った言葉の中に出てきた曲だけを数える
     let ev = 0, sc = 0;
-    for (const [ns, cnt] of pl){
-      if (tn.length >= 2 && ns.includes(tn)){ sc += 1.5 * cnt; ev += cnt; if (an.length >= 2 && ns.includes(an)) sc += 1.0 * cnt; }
+    if (tn.length >= minTitle(tn)){
+      for (const [ns, cnt] of pl){
+        if (ns.includes(tn)){ sc += 1.6 * cnt; ev += cnt; if (an.length >= 2 && ns.includes(an)) sc += 1.2 * cnt; }
+      }
+      const occ = Math.min(countIn(segText, tn) + (tn.length >= 4 ? countIn(segLatin, tn) : 0), 3);
+      sc += 1.2 * occ; ev += occ;
+      // 続きの部分に曲名が出てきた＝かなり強い手がかり
+      for (const [tk, cnt] of tailPool){ if (tk.includes(tn)){ sc += 2.5 * cnt; ev += cnt; } }
     }
-    if (tn.length >= 3){ const occ = Math.min(countIn(segText, tn), 3); sc += 1.2 * occ; ev += occ; }
+    // 続きの部分に歌手名が出てきた
+    if (an.length >= 3) for (const [tk, cnt] of tailPool){ if (tk.includes(an)){ sc += 1.5 * cnt; ev += 1; break; } }
+    // 英字の曲名：歌った言葉と単語が6割以上重なる（聞き間違いで少し違っても拾う）
+    const tw = String(c.title).toLowerCase().replace(/\(.*?\)|\[.*?\]/g, '').match(/[a-z0-9']+/g) || [];
+    if (tw.length >= 2){
+      const sung = new Set(joinWords(words.slice(segStartIdx)).toLowerCase().match(/[a-z0-9']+/g) || []);
+      const hit = tw.filter(x => sung.has(x) || [...sung].some(y => y.length >= 4 && x.length >= 4 && editDist(x, y) <= 1)).length;
+      if (hit / tw.length >= 0.6){ sc += 1.2; ev += 1; }
+    }
     c.ev = ev;
-    c.score = ev > 0 ? sc + c.hits * 0.6 : 0;
+    c.score = ev > 0 ? sc + c.hits * 0.5 : 0;
   }
   const ranked = [...cands.values()].filter(c => c.score > 0).sort((a, b) => b.score - a.score).slice(0, 5);
   const total = ranked.reduce((s2, c) => s2 + c.score, 0) + 1.5;
   // ％は「ほかの候補との比較」と「証拠の量」の両方で決める（証拠が少ないと高く出ない）
-  ranked.forEach(c => { c.pct = (c.score / total) * (1 - Math.exp(-c.score / 5)); });
+  ranked.forEach(c => { c.pct = (c.score / total) * (1 - Math.exp(-c.score / 4)); });
   return ranked;
 }
 function renderPredict(ranked){
   const ol = $('#predictList'); if (!ol) return;
   ol.innerHTML = '';
-  if (!ranked.length){ const li = document.createElement('li'); li.className = 'empty'; li.textContent = t('noPredict'); ol.append(li); return; }
+  if (!ranked.length){ const li = document.createElement('li'); li.className = 'empty'; li.textContent = netState === 'down' ? t('netFail') : t('noPredict'); ol.append(li); return; }
   ranked.slice(0, 3).forEach(c => {
     const li = document.createElement('li');
     const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = c.title;
@@ -808,35 +900,62 @@ function renderPredict(ranked){
     li.append(nm, pc, bar); ol.append(li);
   });
 }
+// 検索語の作り方：聞き間違いが混ざった長い文より、「行の頭」の短い部分の方が、ネット検索で正しい歌詞や曲名に補完されやすい
+function linePrefix(ln){
+  const txt = joinWords(ln);
+  if (CJK.test(txt)) return [...txt.replace(/\s+/g, '')].slice(0, 9).join('');
+  return ln.filter(Boolean).slice(0, 5).join(' ');
+}
+function addCand(r){
+  if (!r || !r.title) return;
+  const key = norm(r.title) + '|' + norm(r.artist);
+  const c = cands.get(key) || Object.assign({key, hits: 0}, r);
+  if (!c.artwork && r.artwork) c.artwork = r.artwork;
+  if (!c.year && r.year) c.year = r.year;
+  c.links = Object.assign({}, r.links, c.links);
+  c.hits += r.w;
+  cands.set(key, c);
+}
 async function searchAttempt(){
-  const lang = recLang(), country = countryOf(lang), hl = hlOf(lang);
-  const seg = words.slice(segStartIdx);
-  if (seg.length < 3) return;
-  const recent = joinWords(seg.slice(-8));
-  const head = joinWords(seg.slice(0, 8));
-  const lyr = hl === 'ja' ? ' 歌詞' : hl === 'ko' ? ' 가사' : hl === 'zh' ? ' 歌词' : ' lyrics';
-  const queries = [...new Set([recent, recent + lyr, head + lyr])];
+  const lang = recLang(), country = countryOf(lang), hl = hlOf(lang), mode = langMode();
+  const lines = logLines.slice(segStartLine).filter(l => l.filter(Boolean).length);
+  if (!lines.length || words.length - segStartIdx < 3) return;
+  const lyr = hl === 'ja' ? ' 歌詞' : hl === 'ko' ? ' 가사' : hl === 'zh' ? ' 歌词' : hl === 'bn' ? ' lyrics' : ' lyrics';
+  const qs = [];
+  for (const ln of lines.slice(-3)){ const p = linePrefix(ln); if (p) qs.push(p); }
+  qs.push(joinWords(words.slice(-6)) + lyr);
+  if (mode === 'bnMix' || hl === 'bn'){ const l = lines[lines.length - 1]; qs.push(l.filter(Boolean).slice(0, 5).map(w => isBn(w) ? bnToLatin(w) : w).join(' ')); }
+  const queries = [...new Set(qs.filter(x => x && norm(x).length >= 3))].slice(0, 5);
   const lists = await Promise.all(queries.map(x => suggest(x, lang)));
   lists.forEach(addPool);
-  // 検索候補から曲名らしい言葉を取り出し、曲カタログで探す
-  const terms = [];
-  for (const l of lists) for (const sg of l){ const k = stripLyricWords(sg); if (k && !terms.includes(k)) terms.push(k); }
-  terms.push(recent);
+  // 検索候補のうち、入力した言葉の「続き」の部分は曲名・歌手名であることが多い
+  const remainders = [], fulls = [];
+  lists.forEach((l, qi) => {
+    l.forEach(sg => {
+      const clean = stripLyricWords(sg); if (!clean) return;
+      const ql = queries[qi].toLowerCase().trim();
+      let tail = null;
+      if (clean.toLowerCase().startsWith(ql)) tail = clean.slice(ql.length);
+      else {
+        const c2 = clean.replace(/\s+/g, ''), q2 = ql.replace(/\s+/g, '');
+        if (c2.toLowerCase().startsWith(q2)) tail = c2.slice(q2.length);
+      }
+      tail = tail && stripLyricWords(tail);
+      if (tail && norm(tail).length >= 2){ remainders.push(tail); const tk = norm(tail); tailPool.set(tk, (tailPool.get(tk) || 0) + 1); }
+      fulls.push(clean);
+    });
+  });
+  const terms = [...new Set([...remainders, ...fulls])];
   let n = 0;
   for (const term of terms){
-    if (n >= 3) break;
-    if (catCache.has(country + '|' + term)) continue;
+    if (n >= 2) break;
+    if (catCache.has('it|' + country + '|' + term)) continue;
     n++;
-    const res = await catalogSearch(term, country);
-    res.forEach((r, idx) => {
-      if (!r.trackName) return;
-      const key = (r.trackName + '|' + r.artistName).toLowerCase();
-      const c = cands.get(key) || {key, title: r.trackName, artist: r.artistName, album: r.collectionName,
-        year: (r.releaseDate || '').slice(0, 4), genre: r.primaryGenreName,
-        artwork: r.artworkUrl100 ? r.artworkUrl100.replace('100x100', '300x300') : '', links: {apple: r.trackViewUrl}, hits: 0};
-      c.hits += 1 / (idx + 1);
-      cands.set(key, c);
-    });
+    const [it, dz] = await Promise.all([catalogSearch(term, country), deezerSearch(term)]);
+    it.forEach((r, idx) => addCand({title: r.trackName, artist: r.artistName, album: r.collectionName, year: (r.releaseDate || '').slice(0, 4),
+      genre: r.primaryGenreName, artwork: r.artworkUrl100 ? r.artworkUrl100.replace('100x100', '300x300') : '', links: {apple: r.trackViewUrl}, w: 1 / (idx + 1)}));
+    dz.forEach((r, idx) => addCand({title: r.title, artist: r.artist && r.artist.name, album: r.album && r.album.title, year: '',
+      genre: '', artwork: r.album && (r.album.cover_big || r.album.cover_medium) || '', links: {}, w: 0.8 / (idx + 1)}));
   }
 }
 async function songLoop(){
@@ -846,7 +965,7 @@ async function songLoop(){
   if (now - lastWordAt > 8000){ if (status) status.textContent = ''; return; }
   if (el < 5){ if (status) status.textContent = `${t('searchingSong')} ${Math.ceil(5 - el)}s`; return; }
   if (currentKey && songPhase === 'shown' && el > 15){ if (status) status.textContent = ''; return; }   // 曲が出たら、次に歌い始めるまで待つ
-  const gap = el <= 15 ? 2000 : 5000;
+  const gap = el <= 15 ? 2500 : 5000;
   if (now - lastSearchAt < gap) return;
   searchBusy = true; lastSearchAt = now;
   if (status) status.textContent = `${t('searchingSong')} ${Math.round(el)}s`;
@@ -856,9 +975,9 @@ async function songLoop(){
     const ranked = scoreCands();
     renderPredict(ranked);
     const top = ranked[0];
-    if (!top){ if ((performance.now() - segStartAt) / 1000 >= 15 && status) status.textContent = t('notFound'); return; }
     const el2 = (performance.now() - segStartAt) / 1000;
-    const ready = (top.pct >= 0.6 && top.ev >= 2) || (el2 >= 15 && top.pct >= 0.45 && top.ev >= 2);
+    if (!top){ if (el2 >= 15 && status) status.textContent = netState === 'down' ? t('netFail') : t('notFound'); return; }
+    const ready = (top.pct >= 0.5 && top.ev >= 1) || (el2 >= 15 && top.pct >= 0.35 && top.ev >= 1);
     if (ready && top.key !== currentKey) think(Object.assign({match: true, confidence: top.pct}, top), top.key);
   }catch{} finally{ searchBusy = false; }
 }
