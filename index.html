@@ -108,6 +108,7 @@ canvas#scope{width:100%;height:84px;display:block;border-top:1px solid var(--lin
 .predict li .bar i{display:block;height:100%;background:var(--accent);transition:width .4s}
 .predict .empty{color:var(--muted);font-size:13px}
 .w{cursor:pointer;border-radius:4px}
+.w:empty{display:none}
 .w:hover{background:color-mix(in srgb, var(--accent) 14%, transparent)}
 .fix-pop{position:fixed;z-index:20;left:max(16px,env(safe-area-inset-left,0px));right:max(16px,env(safe-area-inset-right,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));max-width:520px;margin:0 auto;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:10px;box-shadow:0 12px 40px rgba(0,0,0,.25)}
 .fix-pop input{font:700 20px var(--f-display);color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;width:100%}
@@ -205,7 +206,7 @@ const $ = s => document.querySelector(s);
 /* ---------- 表示文言 ---------- */
 const T = {
   ja: {
-    tagline:'あなたの歌声を、一語ずつ文字に。', recLang:'歌の言語',
+    tagline:'あなたの歌声を、一語ずつ文字に。', mix:'日本語＋英語（ミックス）', recLang:'歌の言語',
     idleStage:'マイクを押して、歌うか話してください。声が一語ずつここに現れます。',
     start:'歌いはじめる', stop:'止める', listening:'聞いています', paused:'停止中',
     unsupported:'このブラウザは音声の文字化に対応していません。Chrome か Edge で開いてください（波形の表示だけ動きます）。',
@@ -223,7 +224,7 @@ const T = {
     log:'記録', habits:'覚えたくせ', habitsReset:'くせを全部忘れる', fixTitle:'正しい言葉に直す', fixSave:'直して覚える', fixDelete:'この語を消す', fixCancel:'やめる', fixHint:'次から同じ聞き間違いを自動で直します', notFound:'候補が見つかりません。歌い続けると探し続けます', copy:'コピー', copied:'コピーしました', clear:'消去', auto:'自動判定（歌から言語を判定）'
   },
   en: {
-    tagline:'Your singing, word by word.', recLang:'Language',
+    tagline:'Your singing, word by word.', mix:'Japanese + English (mixed)', recLang:'Language',
     idleStage:'Press the mic and sing or speak. Your words will appear here one at a time.',
     start:'Start singing', stop:'Stop', listening:'Listening', paused:'Stopped',
     unsupported:'This browser cannot turn speech into text. Open the page in Chrome or Edge (only the waveform works here).',
@@ -241,7 +242,7 @@ const T = {
     log:'Transcript', habits:'Learned fixes', habitsReset:'Forget all fixes', fixTitle:'Fix this word', fixSave:'Fix and remember', fixDelete:'Delete this word', fixCancel:'Cancel', fixHint:'The same mishearing will be fixed automatically next time', notFound:'No match yet. Keep singing and the search continues', copy:'Copy', copied:'Copied', clear:'Clear', auto:'Auto-detect (from your singing)'
   }
 };
-const LANGS = ['auto','ja-JP','en-US','en-GB','en-AU','en-CA','en-IN','en-IE','en-NZ','en-PH','en-SG','en-ZA','en-KE','en-NG','en-GH','en-TZ','en-PK','en-HK',
+const LANGS = ['auto','ja-JP','ja+en','en-US','en-GB','en-AU','en-CA','en-IN','en-IE','en-NZ','en-PH','en-SG','en-ZA','en-KE','en-NG','en-GH','en-TZ','en-PK','en-HK',
   'ko-KR','cmn-Hans-CN','cmn-Hant-TW','yue-Hant-HK',
   'es-ES','es-MX','es-US','es-AR','es-BO','es-CL','es-CO','es-CR','es-DO','es-EC','es-GT','es-HN','es-NI','es-PA','es-PE','es-PR','es-PY','es-SV','es-UY','es-VE',
   'fr-FR','fr-CA','fr-BE','fr-CH','de-DE','de-AT','de-CH','it-IT','it-CH','pt-BR','pt-PT','nl-NL','nl-BE',
@@ -291,13 +292,14 @@ function applyText(){
   $('#statusText').textContent = listening ? t('listening') : t('paused');
   const sel = $('#recLang'), cur = sel.value || store.get('utakoe-lang') || 'auto';
   sel.innerHTML = '';
-  LANGS.forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = v === 'auto' ? t('auto') : langLabel(v); sel.appendChild(o); });
+  LANGS.forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = v === 'auto' ? t('auto') : v === 'ja+en' ? t('mix') : langLabel(v); sel.appendChild(o); });
   sel.value = LANGS.includes(cur) ? cur : 'auto';
   updateBadge();
   if (currentSong && songPhase === 'shown') renderSong(currentSong);
 }
 const isAuto = () => $('#recLang').value === 'auto';
-const recLang = () => isAuto() ? autoLang : $('#recLang').value;
+const recLang = () => { const v = $('#recLang').value; return v === 'auto' ? autoLang : v === 'ja+en' ? 'ja-JP' : v; };
+const isMix = () => $('#recLang').value === 'ja+en';
 let detectBusy = false, detectedOnce = false;
 function updateBadge(){
   const b = $('#autoBadge'); if (!b) return;
@@ -321,11 +323,54 @@ function segment(text, lang){
   if ('Segmenter' in Intl){
     try{
       const seg = new Intl.Segmenter(lang, {granularity:'word'});
-      return [...seg.segment(text)].filter(s => s.isWordLike).map(s => s.segment);
+      // 細切れになったカタカナ（例：ラッパ｜ー｜チ｜ェ…）は1語にまとめる
+      const out = []; let prevEnd = -1, prevKata = false;
+      for (const s of seg.segment(text)){
+        const isK = /^[゠-ヿ]+$/.test(s.segment);
+        if (!s.isWordLike && !isK){ prevKata = false; continue; }
+        if (isK && prevKata && s.index === prevEnd) out[out.length - 1] += s.segment;
+        else out.push(s.segment);
+        prevEnd = s.index + s.segment.length; prevKata = isK;
+      }
+      return out;
     }catch{}
   }
   return text.split(/\s+/).filter(Boolean);
 }
+/* ---------- 日本語＋英語ミックス：カタカナに化けた英語を英語に戻す ---------- */
+const KATA_EN_SRC = {"ペーパー": "paper", "ボイス": "voice", "ヴォイス": "voice", "ノイズ": "noise", "スタック": "stuck", "メンバー": "member", "ラッパー": "rapper", "チェイサー": "chaser", "ライフ": "life", "マネー": "money", "キャッシュ": "cash", "ドリーム": "dream", "ドリーマー": "dreamer", "ハスラー": "hustler", "ハッスル": "hustle", "フロウ": "flow", "フロー": "flow", "ビート": "beat", "ライム": "rhyme", "マイク": "mic", "ステージ": "stage", "ショー": "show", "ゲーム": "game", "プレイヤー": "player", "ヘイター": "hater", "ヘイターズ": "haters", "ヘイト": "hate", "ラブ": "love", "ラヴ": "love", "ハート": "heart", "ソウル": "soul", "ベイビー": "baby", "ベイベー": "baby", "ガール": "girl", "ボーイ": "boy", "ナイト": "night", "ライト": "light", "ファイト": "fight", "ライド": "ride", "ドライブ": "drive", "スピード": "speed", "ストリート": "street", "シティ": "city", "タウン": "town", "ホーム": "home", "クルー": "crew", "ギャング": "gang", "ブラザー": "brother", "ブロ": "bro", "ホーミー": "homie", "フレンド": "friend", "ファミリー": "family", "スター": "star", "スカイ": "sky", "ムーン": "moon", "ファイア": "fire", "ファイヤー": "fire", "アイス": "ice", "ゴールド": "gold", "シルバー": "silver", "ダイヤ": "diamond", "ダイヤモンド": "diamond", "チェーン": "chain", "リング": "ring", "ブランド": "brand", "ドリップ": "drip", "スワッグ": "swag", "スタイル": "style", "ファッション": "fashion", "クール": "cool", "ホット": "hot", "ワイルド": "wild", "クレイジー": "crazy", "バック": "back", "フロント": "front", "トップ": "top", "ボトム": "bottom", "ナンバーワン": "number one", "ナンバー": "number", "ツー": "two", "スリー": "three", "ファイブ": "five", "ヤング": "young", "オールド": "old", "ニュー": "new", "ライン": "line", "タイム": "time", "マインド": "mind", "ワールド": "world", "ルール": "rule", "ボス": "boss", "キング": "king", "クイーン": "queen", "プリンス": "prince", "ヒーロー": "hero", "ヴィラン": "villain", "ゴースト": "ghost", "デビル": "devil", "エンジェル": "angel", "ゴッド": "god", "ヘブン": "heaven", "ヘル": "hell", "ペイン": "pain", "ブラッド": "blood", "ティアーズ": "tears", "スマイル": "smile", "ハッピー": "happy", "サッド": "sad", "ロンリー": "lonely", "フリー": "free", "フリーダム": "freedom", "ウォー": "war", "ピース": "peace", "パワー": "power", "フォース": "force", "エナジー": "energy", "ノー": "no", "イエス": "yes", "オーケー": "okay", "オッケー": "okay", "ヘイ": "hey", "ヨー": "yo", "ワオ": "wow", "オーマイゴッド": "oh my god", "レッツゴー": "let's go", "ゴー": "go", "カモン": "come on", "ウェイ": "way", "ロード": "road", "ジャーニー": "journey", "ストーリー": "story", "メモリー": "memory", "フューチャー": "future", "トゥデイ": "today", "トゥナイト": "tonight", "フォーエバー": "forever", "ネバー": "never", "オールウェイズ": "always", "ナウ": "now", "アゲイン": "again", "アローン": "alone", "トゥギャザー": "together", "ビリーブ": "believe", "フィール": "feel", "フィーリング": "feeling", "ウォント": "want", "ニード": "need", "ゲット": "get", "テイク": "take", "メイク": "make", "ブレイク": "break", "シェイク": "shake", "ムーブ": "move", "ダンス": "dance", "ジャンプ": "jump", "フライ": "fly", "フォール": "fall", "ライズ": "rise", "ショット": "shot", "ガン": "gun", "キル": "kill", "デッド": "dead", "アライブ": "alive", "リアル": "real", "フェイク": "fake", "トゥルー": "true", "シークレット": "secret", "ミステリー": "mystery", "ナイトメア": "nightmare", "ブルー": "blue", "レッド": "red", "ブラック": "black", "ホワイト": "white", "グリーン": "green", "ピンク": "pink", "パープル": "purple", "イエロー": "yellow", "カラー": "color", "ミュージック": "music", "ソング": "song", "サウンド": "sound", "ベース": "bass", "ドラム": "drum", "ギター": "guitar", "ピアノ": "piano", "ビデオ": "video", "フォン": "phone", "コール": "call", "メッセージ": "message", "テキスト": "text", "ライブ": "live", "ショータイム": "showtime", "パーティー": "party", "クラブ": "club", "ドリンク": "drink", "ウイスキー": "whiskey", "ワイン": "wine", "ビール": "beer", "スモーク": "smoke", "ハニー": "honey", "シュガー": "sugar", "スウィート": "sweet", "キャンディ": "candy", "チェリー": "cherry", "ヴァイブス": "vibes", "バイブス": "vibes", "バイブ": "vibe", "ヴァイブ": "vibe", "チル": "chill", "グッド": "good", "バッド": "bad", "ベスト": "best", "ワースト": "worst", "ビッグ": "big", "スモール": "small", "リトル": "little", "ロング": "long", "ショート": "short", "ファスト": "fast", "スロー": "slow", "ハード": "hard", "ソフト": "soft", "ストロング": "strong", "ウィーク": "weak", "リッチ": "rich", "ペイ": "pay", "バンク": "bank", "ビジネス": "business", "ワーク": "work", "ジョブ": "job", "ダラー": "dollar", "ミリオン": "million", "ビリオン": "billion", "サウザンド": "thousand", "ハンドレッド": "hundred", "ゼロ": "zero", "チャンス": "chance", "チョイス": "choice", "ゴール": "goal", "ウィン": "win", "ルーズ": "lose", "ルーザー": "loser", "ウィナー": "winner", "チャンピオン": "champion", "ファースト": "first", "ラスト": "last", "ネクスト": "next", "エンド": "end", "スタート": "start", "ストップ": "stop", "リセット": "reset", "ノック": "knock", "ドア": "door", "キー": "key", "ルーム": "room", "ベッド": "bed", "ホテル": "hotel", "カー": "car", "ベンツ": "Benz", "ランボ": "Lambo", "ポルシェ": "Porsche", "ロレックス": "Rolex", "グッチ": "Gucci", "プラダ": "Prada", "シャネル": "Chanel", "ナイキ": "Nike", "ジョーダン": "Jordan", "スニーカー": "sneaker", "キャップ": "cap", "フッド": "hood", "ゲットー": "ghetto", "グラインド": "grind", "モチベーション": "motivation", "アンザイエティ": "anxiety", "アングザイエティ": "anxiety", "ストレス": "stress", "プレッシャー": "pressure", "ドラマ": "drama", "トラブル": "trouble", "プロブレム": "problem", "ノープロブレム": "no problem", "ヘッド": "head", "ブレイン": "brain", "ユー": "you", "ミー": "me", "マイ": "my", "ユア": "your", "ブーム": "boom", "ボム": "bomb", "ファック": "fuck", "シット": "shit", "ダム": "damn", "ビッチ": "bitch", "ステイ": "stay", "ショック": "shock", "ロック": "rock", "ポップ": "pop", "ヒップホップ": "hip-hop", "ラップ": "rap", "トラップ": "trap", "ドリル": "drill", "サイファー": "cypher", "フリースタイル": "freestyle", "バトル": "battle", "ビーフ": "beef", "ディス": "diss", "リスペクト": "respect", "フォロワー": "follower", "インスタ": "Insta", "バズ": "buzz", "トレンド": "trend", "ハイプ": "hype", "ブースト": "boost", "レベル": "level", "アップデート": "update", "システム": "system", "エラー": "error", "バグ": "bug", "グリッチ": "glitch", "ドント": "don't", "キャント": "can't", "ビーチ": "beach", "オーシャン": "ocean", "レイン": "rain", "スノー": "snow", "ストーム": "storm", "サンダー": "thunder", "ウィンド": "wind", "フラワー": "flower", "ローズ": "rose", "パラダイス": "paradise", "ウィッシュ": "wish", "ホープ": "hope", "ヴィクトリー": "victory", "グローリー": "glory", "レジェンド": "legend", "ミッション": "mission", "スピリット": "spirit", "ウィング": "wing", "ウィングス": "wings", "フェザー": "feather", "フレーム": "flame", "バーン": "burn", "ブレイブ": "brave", "エブリデイ": "everyday", "エブリバディ": "everybody", "サムバディ": "somebody", "ノーバディ": "nobody", "エニーモア": "anymore", "ライフスタイル": "lifestyle", "ヘッドショット": "headshot", "ハイライト": "highlight", "スポットライト": "spotlight", "ブレイクスルー": "breakthrough", "カウントダウン": "countdown", "ショーケース": "showcase", "ミックステープ": "mixtape", "プロデューサー": "producer", "レーベル": "label", "アルバム": "album", "シングル": "single", "リリック": "lyric", "リリックス": "lyrics", "フィーチャリング": "featuring", "リミックス": "remix", "ボーナス": "bonus", "プレミア": "premier", "ブラン": "brand", "クローズ": "close", "オープン": "open", "シャイン": "shine", "ブリング": "bling", "フラッシュ": "flash", "ファンタジー": "fantasy", "リアリティ": "reality", "ジェラシー": "jealousy", "エゴ": "ego", "プライド": "pride", "ライバル": "rival", "エネミー": "enemy", "トラスト": "trust", "ロイヤル": "loyal", "ギフト": "gift", "カルマ": "karma", "ヴォイシーズ": "voices"};
+const toKata = x => x.replace(/[\u3041-\u3096]/g, c => String.fromCharCode(c.charCodeAt(0) + 0x60));
+const kkey = x => toKata(x).replace(/[ーッ・\s]/g, '').replace(/ヴァ/g,'バ').replace(/ヴィ/g,'ビ').replace(/ヴ/g,'ブ');
+const KATA_EN = new Map(Object.entries(KATA_EN_SRC).map(([k, v]) => [kkey(k), v]));
+function kataToEn(tok){
+  if (!/^[\u30A0-\u30FF]+$/.test(tok)) return null;
+  const key = kkey(tok);
+  if (key.length < 2) return null;
+  if (KATA_EN.has(key)) return KATA_EN.get(key);
+  // 2〜3語がつながったカタカナ（例：ラッパーチェイサー）を分けて探す
+  const parts = [];
+  let rest = key;
+  while (rest){
+    let hit = null;
+    for (let n = rest.length; n >= 2; n--){ const sub = rest.slice(0, n); if (KATA_EN.has(sub)){ hit = sub; break; } }
+    if (!hit) return null;
+    parts.push(KATA_EN.get(hit)); rest = rest.slice(hit.length);
+    if (parts.length > 3) return null;
+  }
+  return parts.join(' ');
+}
+function mixTokens(toks){
+  // 英語に戻した語は、隣の英語とつなげて1つにまとめる
+  const out = [];
+  for (const tk of toks){
+    const en = kataToEn(tk);
+    if (en && out.length && out[out.length - 1]._en){ const prev = out.pop(); const merged = new String(prev + ' ' + en); merged._en = true; out.push(merged); }
+    else if (en){ const v = new String(en); v._en = true; out.push(v); }
+    else out.push(tk);
+  }
+  return out.map(x => String(x));
+}
+
 const NOSPACE = /[぀-ヿ㐀-鿿豈-﫿฀-๿가-힯ｦ-ﾟ]/;
 
 /* ---------- くせ学習：直した言葉を覚えて、次から自動で直す ---------- */
@@ -412,6 +457,7 @@ function setWord(r, text){
 }
 let fixTarget = null;
 function openFix(span){
+  if (!span.textContent.trim()) return;
   fixTarget = span._rec; if (!fixTarget) return;
   $('#fixInput').value = span.textContent;
   $('#fixPop').hidden = false;
@@ -474,7 +520,7 @@ function startRecognition(){
   if (!SR || !listening || srBlocked || recActive || recStarting) return;
   recStarting = true; recStartAt = performance.now();
   const r = new SR();
-  const S = {results: [], sched: [], shown: [], broke: [], lang: recLang()};
+  const S = {results: [], sched: [], shown: [], broke: [], lang: recLang(), mix: isMix()};
   r._S = S;
   r.lang = recLang(); r.continuous = true; r.interimResults = true; r.maxAlternatives = 1;
   r.onstart = () => { if (r === rec){ recActive = true; recStarting = false; } };
@@ -484,7 +530,8 @@ function startRecognition(){
     let speaking = false;
     for (let i = e.resultIndex; i < e.results.length; i++){
       const res = e.results[i];
-      const toks = segment(res[0].transcript, r.lang);
+      let toks = segment(res[0].transcript, r.lang);
+      if (S.mix) toks = mixTokens(toks);
       S.results[i] = {toks, final: res.isFinal};
       // 途中結果は最後の1語だけ保留（いちばん変わりやすいため）。ほかは1秒後の表示時点で最新に置き換わる
       const target = res.isFinal ? toks.length : Math.max(0, toks.length - 1);
@@ -707,6 +754,7 @@ async function runNear(){
     }
     if (best && bestD > 0 && bestD <= 0.34){
       let toks = segment(best, S.lang);
+      if (S.mix) toks = mixTokens(toks);
       const shownN = S.sched[i] || 0;
       if (shownN > 0 && toks.length > shownN) toks = toks.slice(0, shownN - 1).concat(joinWords(toks.slice(shownN - 1)));
       R.toks = toks;
