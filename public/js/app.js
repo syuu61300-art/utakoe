@@ -212,17 +212,85 @@ const toB64 = blob => new Promise(res => { const r = new FileReader(); r.onload 
 
 /* ---------- 曲の照合 ---------- */
 let checking = false, lastCheckN = 0, lastCheckAt = 0, songPhase = 'idle', currentSong = null, currentKey = '', songFromLine = 0;
+/* サーバーなしで動く照合：歌った言葉の中に曲名が含まれているかを、公開の楽曲カタログで調べる */
+const norm = s => String(s || '').toLowerCase()
+  .replace(/[\(\[（【].*?[\)\]）】]/g, '')
+  .replace(/\s*[-–—~〜].*(remaster|version|ver\.|mix|edit|live|instrumental).*$/i, '')
+  .normalize('NFKC').replace(/[^\p{L}\p{N}]+/gu, '');
+const countIn = (hay, needle) => { let c = 0, i = 0; while ((i = hay.indexOf(needle, i)) >= 0){ c++; i += needle.length; } return c; };
+const CJK = /[぀-ヿ㐀-鿿가-힯฀-๿]/;
+function catalogSearch(term, country){
+  return new Promise(resolve => {
+    const cb = 'uk' + Math.random().toString(36).slice(2);
+    const s = document.createElement('script');
+    const done = v => { clearTimeout(timer); delete window[cb]; s.remove(); resolve(v); };
+    const timer = setTimeout(() => done([]), 8000);
+    window[cb] = d => done((d && d.results) || []);
+    s.onerror = () => done([]);
+    s.src = `https://itunes.apple.com/search?term=${q(term)}&entity=song&limit=15&country=${country}&callback=${cb}`;
+    document.head.appendChild(s);
+  });
+}
+const searched = new Set();
+async function identifyLocal(){
+  const lang = recLang().toLowerCase();
+  const country = lang.startsWith('ja') ? 'JP' : lang.startsWith('ko') ? 'KR' : lang.startsWith('zh-tw') ? 'TW' : lang.startsWith('zh') ? 'HK' : 'US';
+  const all = norm(joinWords(words));
+  const recent = words.slice(-24);
+  // 繰り返し歌われたフレーズ（サビ）を優先して検索語を作る
+  const cands = new Map();
+  for (let n = 4; n >= 1; n--){
+    for (let i = 0; i + n <= recent.length; i++){
+      const phrase = joinWords(recent.slice(i, i + n));
+      const key = norm(phrase);
+      const minLen = CJK.test(key) ? 2 : 4;
+      if (key.length < minLen || cands.has(key) || searched.has(country + key)) continue;
+      const rep = countIn(all, key);
+      cands.set(key, {phrase, score: rep * 3 + n + key.length / 6});
+    }
+  }
+  const picks = [...cands.entries()].sort((a,b) => b[1].score - a[1].score).slice(0, 4);
+  let best = null;
+  for (const [key, c] of picks){
+    searched.add(country + key);
+    const results = await catalogSearch(c.phrase, country);
+    results.forEach((r, idx) => {
+      const tn = norm(r.trackName);
+      if (!tn || tn.length < (CJK.test(tn) ? 2 : 3)) return;
+      const occ = countIn(all, tn);
+      if (!occ) return;
+      const artistHit = norm(r.artistName) && all.includes(norm(r.artistName)) ? 0.15 : 0;
+      const conf = Math.min(0.97, 0.45 + Math.min(occ, 4) * 0.08 + Math.min(tn.length, 12) * 0.02 + artistHit - idx * 0.01);
+      if (!best || conf > best.confidence){
+        best = {
+          match: true, confidence: conf, title: r.trackName, artist: r.artistName, album: r.collectionName,
+          year: (r.releaseDate || '').slice(0, 4), genre: r.primaryGenreName,
+          artwork: r.artworkUrl100 ? r.artworkUrl100.replace('100x100', '300x300') : '',
+          links: { apple: r.trackViewUrl }
+        };
+      }
+    });
+    if (best && best.confidence >= 0.8) break;
+  }
+  return best || {match: false};
+}
+
 async function maybeIdentify(){
-  if (!(cfg.text || cfg.audio) || checking || songPhase === 'thinking') return;
+  if (checking || songPhase === 'thinking') return;
   const now = Date.now();
   if (words.length - lastCheckN < 8 || now - lastCheckAt < 6000) return;
   checking = true; lastCheckN = words.length; lastCheckAt = now;
   try{
-    const body = {text: joinWords(words.slice(-90)), lang: recLang(), ui};
-    if (cfg.audio && lastClip){ body.audio = await toB64(lastClip); body.mime = lastClip.type; }
-    const r = await fetch('/api/identify', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(body)});
-    if (!r.ok) return;
-    const j = await r.json();
+    let j;
+    if (cfg.text || cfg.audio){
+      const body = {text: joinWords(words.slice(-90)), lang: recLang(), ui};
+      if (cfg.audio && lastClip){ body.audio = await toB64(lastClip); body.mime = lastClip.type; }
+      const r = await fetch('api/identify', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(body)});
+      if (!r.ok) return;
+      j = await r.json();
+    } else {
+      j = await identifyLocal();
+    }
     if (j.match && j.confidence >= 0.6 && j.title){
       const key = (j.title + '|' + j.artist).toLowerCase();
       if (key !== currentKey) think(j, key);
@@ -251,8 +319,9 @@ function renderSong(s){
   const box = document.createElement('div'); box.className = 'reveal'; box.style.cssText = 'display:flex;flex-direction:column;gap:12px';
   const h = document.createElement('h2'); h.className = 'song-title'; h.textContent = s.title;
   const a = document.createElement('p'); a.className = 'song-artist'; a.textContent = s.artist || '';
+  if (s.artwork){ const img = document.createElement('img'); img.src = s.artwork; img.alt = ''; img.width = 300; img.height = 300; img.style.cssText = 'width:100%;max-width:220px;height:auto;border-radius:10px'; box.append(img); }
   box.append(h, a);
-  const metaBits = [s.year && `${t('year')} ${s.year}`, s.album, s.language].filter(Boolean);
+  const metaBits = [s.year && `${t('year')} ${s.year}`, s.album, s.genre, s.language].filter(Boolean);
   if (metaBits.length){ const m = document.createElement('span'); m.className = 'meta'; m.textContent = metaBits.join(' · '); box.append(m); }
   if (s.summary){ const p = document.createElement('p'); p.className = 'summary'; p.textContent = s.summary; box.append(p); }
   if (s.themes?.length){ const tg = document.createElement('div'); tg.className = 'tags'; s.themes.slice(0,5).forEach(x => { const sp = document.createElement('span'); sp.textContent = x; tg.append(sp); }); box.append(tg); }
@@ -322,5 +391,5 @@ $('#clearBtn').addEventListener('click', () => {
 
 applyText(); setUI(); idleScope();
 addEventListener('resize', () => { if (!listening) idleScope(); });
-fetch('/api/config').then(r => r.ok ? r.json() : null).then(c => { if (c) cfg = c; }).catch(() => {});
+fetch('api/config').then(r => r.ok ? r.json() : null).then(c => { if (c) cfg = c; }).catch(() => {});
 })();
