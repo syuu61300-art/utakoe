@@ -97,6 +97,16 @@ canvas#scope{width:100%;height:84px;display:block;border-top:1px solid var(--lin
 .links a{display:block;text-align:center;text-decoration:none;color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px 6px;font-size:13px;font-weight:500}
 .links a.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);grid-column:1/-1}
 .links a:hover{border-color:var(--accent)}
+.predict{border-top:1px solid var(--line);padding-top:12px;display:flex;flex-direction:column;gap:8px}
+.predict-head{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.predict ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.predict li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;font-size:13px}
+.predict li .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.predict li .nm small{color:var(--muted);margin-left:6px}
+.predict li .pc{font:500 13px var(--f-mono);font-variant-numeric:tabular-nums;color:var(--accent)}
+.predict li .bar{grid-column:1/-1;height:4px;border-radius:2px;background:var(--line);overflow:hidden}
+.predict li .bar i{display:block;height:100%;background:var(--accent);transition:width .4s}
+.predict .empty{color:var(--muted);font-size:13px}
 .your-lyrics{border-top:1px solid var(--line);padding-top:12px;max-height:220px;overflow:auto}
 .your-lyrics p{margin:0;font:500 15px/1.8 var(--f-display)}
 .reveal{animation:rise .6s cubic-bezier(.2,.8,.2,1) both}
@@ -147,6 +157,10 @@ canvas#scope{width:100%;height:84px;display:block;border-top:1px solid var(--lin
     <aside class="song" id="song">
       <span class="eyebrow" data-t="thisSong"></span>
       <div id="songBody"><p class="song-idle" data-t="songIdle"></p></div>
+      <div class="predict" id="predict">
+        <div class="predict-head"><span class="eyebrow" data-t="predict"></span><span class="status" id="predictStatus"></span></div>
+        <ol id="predictList"></ol>
+      </div>
     </aside>
 
     <section class="log">
@@ -183,7 +197,7 @@ const T = {
     network:'音声の文字化サービスにつながりません。Chrome で開き、インターネット接続を確認してください。',
     detecting:'言語を判定中', autoNow:'自動', 
     thisSong:'この曲', songIdle:'曲がわかると、ここに曲名と内容が表示されます。',
-    matching:'曲を照合しています', yourLyrics:'あなたが歌った歌詞', year:'発表',
+    matching:'曲を照合しています', predict:'予測', searchingSong:'曲を検索中', noPredict:'歌い始めて5秒後から候補が出ます', yourLyrics:'あなたが歌った歌詞', year:'発表',
     listen:'YouTubeで聴く', lyrics:'歌詞を見る',
     log:'記録', copy:'コピー', copied:'コピーしました', clear:'消去', auto:'自動判定（歌から言語を判定）'
   },
@@ -201,7 +215,7 @@ const T = {
     network:'Cannot reach the speech-to-text service. Use Chrome and check your internet connection.',
     detecting:'Detecting language', autoNow:'Auto', 
     thisSong:'This song', songIdle:'Once the song is recognized, its title and details appear here.',
-    matching:'Matching the song', yourLyrics:'Lyrics you sang', year:'Released',
+    matching:'Matching the song', predict:'Predictions', searchingSong:'Searching for the song', noPredict:'Candidates appear 5 seconds after you start singing', yourLyrics:'Lyrics you sang', year:'Released',
     listen:'Listen on YouTube', lyrics:'View lyrics',
     log:'Transcript', copy:'Copy', copied:'Copied', clear:'Clear', auto:'Auto-detect (from your singing)'
   }
@@ -268,12 +282,12 @@ function updateBadge(){
   const b = $('#autoBadge'); if (!b) return;
   b.hidden = !isAuto();
   b.classList.toggle('busy', listening && !detectedOnce);
-  b.textContent = listening && !detectedOnce ? t('detecting') : `${t('autoNow')}: ${langName(autoLang)}`;
+  const pc = detectedOnce && langAvg[autoLang] ? ` ${Math.round(Math.min(1, langAvg[autoLang]) * 100)}%` : '';
+  b.textContent = listening && !detectedOnce ? t('detecting') : `${t('autoNow')}: ${langName(autoLang)}${pc}`;
 }
 
 /* ---------- 状態 ---------- */
 let listening = false, rec = null, stream = null, audioCtx = null, analyser = null, raf = 0;
-let committed = [];               // 認識セッション内の各結果ごとに表示済みの語数
 const queue = []; let lastRevealAt = 0, pumpTimer = null;
 const words = [];                 // 表示済みの全単語
 const logLines = [[]];            // 行ごとの単語
@@ -327,20 +341,38 @@ function reveal(item){
     if (currentLine && currentLine.querySelector('.w')){ currentLine = null; logLines.push([]); if (queue.length) showCaret(true); }
     renderLog(); return;
   }
+  // 表示する瞬間に、その位置の「最新の認識結果」を読む（1秒の間に直った言葉が反映される）
+  let text = item.text;
+  if (item.s){ const res = item.s.results[item.i]; text = res && res.toks[item.k]; }
+  if (!text){ if (!queue.length) showCaret(false); return; }
   const line = ensureLine();
   const prev = logLines[logLines.length-1].at(-1);
-  if (prev && !(NOSPACE.test(prev.at(-1)) || NOSPACE.test(item.text[0]))) line.insertBefore(document.createTextNode(' '), caret.parentNode === line ? caret : null);
+  if (prev && !(NOSPACE.test(prev.at(-1)) || NOSPACE.test(text[0]))) line.insertBefore(document.createTextNode(' '), caret.parentNode === line ? caret : null);
   const span = document.createElement('span');
-  span.className = 'w fresh'; span.textContent = item.text;
+  span.className = 'w fresh'; span.textContent = text;
   line.insertBefore(span, caret.parentNode === line ? caret : null);
   setTimeout(() => span.classList.remove('fresh'), 900);
-  words.push(item.text);
-  logLines[logLines.length-1].push(item.text);
+  if (item.s) (item.s.shown[item.i] ||= [])[item.k] = {span, lineIdx: logLines.length - 1, pos: logLines[logLines.length-1].length, wIdx: words.length};
+  words.push(text);
+  logLines[logLines.length-1].push(text);
   renderLog();
   if (songPhase === 'shown') renderYourLyrics();
   maybeIdentify();
 }
-const joinWords = arr => arr.reduce((s,w,i) => s + (i && !(NOSPACE.test(arr[i-1].at(-1)) || NOSPACE.test(w[0])) ? ' ' : '') + w, '');
+// 確定した結果が表示済みの言葉と違えば、その場で正しい言葉に直す
+function correctShown(S, i){
+  const res = S.results[i], shown = S.shown[i];
+  if (!res || !shown) return;
+  let changed = false;
+  shown.forEach((r, k) => {
+    const nt = res.toks[k] || '';
+    if (!r || nt === r.span.textContent || !logLines[r.lineIdx]) return;
+    r.span.textContent = nt; r.span.classList.add('fresh'); setTimeout(() => r.span.classList.remove('fresh'), 900);
+    logLines[r.lineIdx][r.pos] = nt; words[r.wIdx] = nt; changed = true;
+  });
+  if (changed){ renderLog(); if (songPhase === 'shown') renderYourLyrics(); }
+}
+const joinWords = list => { const arr = list.filter(Boolean); return arr.reduce((s,w,i) => s + (i && !(NOSPACE.test(arr[i-1].at(-1)) || NOSPACE.test(w[0])) ? ' ' : '') + w, ''); };
 let logTimes = [];
 function renderLog(){
   const box = $('#logBody'); box.innerHTML = '';
@@ -356,56 +388,140 @@ function renderLog(){
   box.scrollTop = box.scrollHeight;
 }
 
-/* ---------- 音声認識 ---------- */
+/* ---------- 音声認識（途切れても0.1秒以内に自動でつなぎ直す） ---------- */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recActive = false, recStarting = false, recStartAt = 0, srBlocked = false, pendingLang = null, heardAt = 0, watchdog = 0;
+// 認識が区切られたとき、まだ画面に出していない語も最後まで出す
+function flushPending(S){
+  if (!S) return;
+  S.results.forEach((R, i) => {
+    if (!R) return;
+    const done = S.sched[i] || 0;
+    for (let k = done; k < R.toks.length; k++) enqueue({type:'word', s:S, i, k});
+    S.sched[i] = Math.max(done, R.toks.length);
+    if (!S.broke[i]){ S.broke[i] = true; enqueue({type:'break'}); }
+  });
+}
 function startRecognition(){
-  rec = new SR();
-  rec.lang = recLang(); rec.continuous = true; rec.interimResults = true; rec.maxAlternatives = 1;
-  committed = [];
-  rec.onresult = e => {
+  if (!SR || !listening || srBlocked || recActive || recStarting) return;
+  recStarting = true; recStartAt = performance.now();
+  const r = new SR();
+  const S = {results: [], sched: [], shown: [], broke: [], lang: recLang()};
+  r._S = S;
+  r.lang = recLang(); r.continuous = true; r.interimResults = true; r.maxAlternatives = 1;
+  r.onstart = () => { if (r === rec){ recActive = true; recStarting = false; } };
+  r.onresult = e => {
+    if (r !== rec) return;
+    heardAt = performance.now();
+    let speaking = false;
     for (let i = e.resultIndex; i < e.results.length; i++){
-      const r = e.results[i];
-      const toks = segment(r[0].transcript, rec.lang);
-      const stable = r.isFinal ? toks.length : Math.max(0, toks.length - 2);
-      const done = committed[i] || 0;
-      for (let k = done; k < stable; k++) enqueue({type:'word', text:toks[k]});
-      committed[i] = Math.max(done, stable);
-      if (r.isFinal && !r._broke){ r._broke = true; enqueue({type:'break'}); }
+      const res = e.results[i];
+      const toks = segment(res[0].transcript, r.lang);
+      S.results[i] = {toks, final: res.isFinal};
+      // 途中結果は最後の1語だけ保留（いちばん変わりやすいため）。ほかは1秒後の表示時点で最新に置き換わる
+      const target = res.isFinal ? toks.length : Math.max(0, toks.length - 1);
+      const done = S.sched[i] || 0;
+      for (let k = done; k < target; k++) enqueue({type:'word', s:S, i, k});
+      S.sched[i] = Math.max(done, target);
+      if (res.isFinal){
+        if (!S.broke[i]){ S.broke[i] = true; enqueue({type:'break'}); }
+        correctShown(S, i);
+        nearFix(S, i);
+      } else speaking = true;
     }
+    if (!speaking && pendingLang) applyPendingLang();
   };
-  rec.onerror = e => {
-    if (e.error === 'not-allowed' || e.error === 'service-not-allowed'){ showMsg(t('denied')); stop(); }
+  r.onerror = e => {
+    if (r !== rec) return;
+    if (e.error === 'not-allowed' || e.error === 'service-not-allowed'){ srBlocked = true; showMsg(t('denied')); }
     else if (e.error === 'network'){ showMsg(t('network')); }
-    else if (e.error === 'language-not-supported' && !isAuto()){ showMsg(langName(recLang()) + ' ×'); }
+    else if (e.error === 'language-not-supported'){ if (!isAuto()) showMsg(langName(recLang()) + ' ×'); }
   };
-  rec.onend = () => { if (listening) setTimeout(() => { if (listening) startRecognition(); }, 200); };
-  try{ rec.start(); }catch{}
+  r.onend = () => {
+    if (r !== rec) return;
+    flushPending(S);
+    recActive = false; recStarting = false;
+    if (listening) startRecognition();
+  };
+  rec = r;
+  try{ r.start(); }catch{ recStarting = false; }
+}
+function applyPendingLang(){
+  if (!pendingLang) return;
+  autoLang = pendingLang; pendingLang = null;
+  updateBadge();
+  enqueue({type:'break'});
+  try{ rec && rec.stop(); }catch{}            // 区切りなので止めても言葉は欠けない。onend で新しい言語ですぐ再開
+}
+function startWatchdog(){
+  clearInterval(watchdog);
+  watchdog = setInterval(() => {
+    if (!listening) return;
+    // 0.1秒ごとに確認：止まっていたら即再開
+    if (recStarting && performance.now() - recStartAt > 3000){ recStarting = false; try{ rec && rec.abort(); }catch{} }
+    if (!recActive && !recStarting) startRecognition();
+    // 1.2秒以上声がなければ、保留中の言語切り替えを適用
+    if (pendingLang && performance.now() - heardAt > 1200) applyPendingLang();
+    // 音声処理が一時停止されたら再開
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+    // マイクが切れたらつなぎ直す
+    if (stream && stream.getAudioTracks().every(tr => tr.readyState === 'ended')) reconnectMic();
+  }, 100);
 }
 
-/* ---------- 波形の可視化 ---------- */
+/* ---------- 波形の可視化（止まらない・遅れない） ---------- */
+let scopeColor = '', scopeColorAt = 0, lvlSmooth = 0, micSrc = null, reconnecting = false;
+function scopeAccent(){
+  const now = performance.now();
+  if (!scopeColor || now - scopeColorAt > 1000){ scopeColor = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#f2b24c'; scopeColorAt = now; }
+  return scopeColor;
+}
+function connectSource(){
+  try{ micSrc && micSrc.disconnect(); }catch{}
+  micSrc = audioCtx.createMediaStreamSource(stream);
+  micSrc.connect(analyser);
+  startCapture(micSrc);
+}
+async function reconnectMic(){
+  if (reconnecting || !listening) return;
+  reconnecting = true;
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true, noiseSuppression:false, autoGainControl:true}});
+    if (audioCtx) connectSource();
+  }catch{} finally{ reconnecting = false; }
+}
 function startScope(){
-  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  const src = audioCtx.createMediaStreamSource(stream);
-  analyser = audioCtx.createAnalyser(); analyser.fftSize = 2048;
-  src.connect(analyser);
-  startCapture(src);
+  const AC = window.AudioContext || window.webkitAudioContext;
+  try{ audioCtx = new AC({latencyHint:'interactive'}); }catch{ audioCtx = new AC(); }
+  audioCtx.resume().catch(() => {});
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 1024; analyser.smoothingTimeConstant = 0;
+  connectSource();
   const cv = $('#scope'), ctx = cv.getContext('2d');
-  const data = new Uint8Array(analyser.fftSize);
+  const useFloat = typeof analyser.getFloatTimeDomainData === 'function';
+  const fdata = new Float32Array(analyser.fftSize), bdata = new Uint8Array(analyser.fftSize);
   const draw = () => {
+    raf = requestAnimationFrame(draw);          // 先に次のフレームを予約（途中で失敗しても止まらない）
+    if (!analyser) return;
     const dpr = devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
-    if (cv.width !== w*dpr){ cv.width = w*dpr; cv.height = h*dpr; }
+    if (cv.width !== Math.round(w*dpr) || cv.height !== Math.round(h*dpr)){ cv.width = Math.round(w*dpr); cv.height = Math.round(h*dpr); }
     ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,w,h);
-    analyser.getByteTimeDomainData(data);
-    let sum = 0; for (const v of data){ const d = (v-128)/128; sum += d*d; }
-    const lvl = Math.min(1, Math.sqrt(sum/data.length) * 4);
-    $('#mic').style.setProperty('--lvl', (1 + lvl*0.35).toFixed(3));
-    const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
-    ctx.strokeStyle = accent; ctx.lineWidth = 2; ctx.beginPath();
-    const step = data.length / w;
-    for (let x = 0; x < w; x++){ const v = (data[Math.floor(x*step)] - 128) / 128; const y = h/2 + v * h * 0.9; x ? ctx.lineTo(x,y) : ctx.moveTo(x,y); }
+    if (useFloat) analyser.getFloatTimeDomainData(fdata);
+    else { analyser.getByteTimeDomainData(bdata); for (let i = 0; i < bdata.length; i++) fdata[i] = (bdata[i] - 128) / 128; }
+    let sum = 0; for (let i = 0; i < fdata.length; i++) sum += fdata[i] * fdata[i];
+    const lvl = Math.min(1, Math.sqrt(sum / fdata.length) * 4);
+    lvlSmooth = lvl > lvlSmooth ? lvl : lvlSmooth * 0.85 + lvl * 0.15;   // すぐ上がり、なめらかに下がる
+    $('#mic').style.setProperty('--lvl', (1 + lvlSmooth * 0.35).toFixed(3));
+    ctx.strokeStyle = scopeAccent(); ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.beginPath();
+    const step = fdata.length / w;
+    for (let x = 0; x < w; x++){
+      const v = Math.max(-1, Math.min(1, fdata[Math.floor(x * step)]));
+      const y = h / 2 + v * (h / 2 - 2);
+      x ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    }
     ctx.stroke();
-    raf = requestAnimationFrame(draw);
   };
+  cancelAnimationFrame(raf);
   draw();
 }
 function idleScope(){
@@ -435,7 +551,7 @@ function startClips(){
 const toB64 = blob => new Promise(res => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.readAsDataURL(blob); });
 
 /* ---------- 曲の照合 ---------- */
-let checking = false, lastCheckN = 0, lastCheckAt = 0, songPhase = 'idle', currentSong = null, currentKey = '', songFromLine = 0;
+let songPhase = 'idle', currentSong = null, currentKey = '', songFromLine = 0;
 /* サーバーなしで動く照合：歌った言葉の中に曲名が含まれているかを、公開の楽曲カタログで調べる */
 const norm = s => String(s || '').toLowerCase()
   .replace(/[\(\[（【].*?[\)\]）】]/g, '')
@@ -443,98 +559,221 @@ const norm = s => String(s || '').toLowerCase()
   .normalize('NFKC').replace(/[^\p{L}\p{N}]+/gu, '');
 const countIn = (hay, needle) => { let c = 0, i = 0; while ((i = hay.indexOf(needle, i)) >= 0){ c++; i += needle.length; } return c; };
 const CJK = /[぀-ヿ㐀-鿿가-힯฀-๿]/;
-function catalogSearch(term, country){
+/* ---------- ネット検索（検索候補・曲カタログ） ---------- */
+function jsonp(url, timeout = 6000){
   return new Promise(resolve => {
     const cb = 'uk' + Math.random().toString(36).slice(2);
-    const s = document.createElement('script');
-    const done = v => { clearTimeout(timer); delete window[cb]; s.remove(); resolve(v); };
-    const timer = setTimeout(() => done([]), 8000);
-    window[cb] = d => done((d && d.results) || []);
-    s.onerror = () => done([]);
-    s.src = `https://itunes.apple.com/search?term=${q(term)}&entity=song&limit=15&country=${country}&callback=${cb}`;
-    document.head.appendChild(s);
+    const el = document.createElement('script');
+    let fin = false;
+    const done = v => { if (fin) return; fin = true; clearTimeout(tm); window[cb] = () => {}; setTimeout(() => { try{ delete window[cb]; }catch{} }, 15000); el.remove(); resolve(v); };
+    const tm = setTimeout(() => done(null), timeout);
+    window[cb] = d => done(d);
+    el.onerror = () => done(null);
+    el.src = url + (url.includes('?') ? '&' : '?') + 'callback=' + cb;
+    document.head.appendChild(el);
   });
 }
-const searched = new Set();
-async function identifyLocal(){
-  const lang = recLang().toLowerCase();
-  const country = lang.startsWith('ja') ? 'JP' : lang.startsWith('ko') ? 'KR' : lang.startsWith('zh-tw') ? 'TW' : lang.startsWith('zh') ? 'HK' : 'US';
-  const all = norm(joinWords(words));
-  const recent = words.slice(-24);
-  // 繰り返し歌われたフレーズ（サビ）を優先して検索語を作る
-  const cands = new Map();
-  for (let n = 4; n >= 1; n--){
-    for (let i = 0; i + n <= recent.length; i++){
-      const phrase = joinWords(recent.slice(i, i + n));
-      const key = norm(phrase);
-      const minLen = CJK.test(key) ? 2 : 4;
-      if (key.length < minLen || cands.has(key) || searched.has(country + key)) continue;
-      const rep = countIn(all, key);
-      cands.set(key, {phrase, score: rep * 3 + n + key.length / 6});
+const hlOf = lang => /^(cmn|yue|zh)/i.test(lang) ? 'zh' : lang.split('-')[0];
+const countryOf = lang => {
+  const l = lang.toLowerCase();
+  if (l.startsWith('ja')) return 'JP';
+  if (l.startsWith('ko')) return 'KR';
+  if (/hant-tw|zh-tw/.test(l)) return 'TW';
+  if (l.startsWith('yue')) return 'HK';
+  if (/^(cmn|zh)/.test(l)) return 'CN';
+  const parts = l.split('-'); const reg = parts[parts.length - 1];
+  return reg && reg.length === 2 ? reg.toUpperCase() : 'US';
+};
+const sugCache = new Map();
+async function suggest(text, lang){
+  const key = lang + '|' + text;
+  if (sugCache.has(key)) return sugCache.get(key);
+  const d = await jsonp(`https://suggestqueries.google.com/complete/search?client=youtube&ds=yt&hl=${hlOf(lang)}&q=${q(text)}`);
+  const arr = Array.isArray(d) && Array.isArray(d[1]) ? d[1].map(x => Array.isArray(x) ? x[0] : x).filter(x => typeof x === 'string') : [];
+  if (d) sugCache.set(key, arr);
+  return arr;
+}
+const catCache = new Map();
+async function catalogSearch(term, country){
+  const key = country + '|' + term;
+  if (catCache.has(key)) return catCache.get(key);
+  const d = await jsonp(`https://itunes.apple.com/search?term=${q(term)}&entity=song&limit=8&country=${country}`, 8000);
+  const arr = (d && d.results) || [];
+  if (d) catCache.set(key, arr);
+  return arr;
+}
+function editDist(a, b){
+  const m = a.length, n = b.length; if (!m) return n; if (!n) return m;
+  let prev = Array.from({length: n + 1}, (_, j) => j);
+  for (let i = 1; i <= m; i++){
+    const cur = [i];
+    for (let j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j-1] + 1, prev[j-1] + (a[i-1] === b[j-1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[n];
+}
+const LYRIC_WORDS = /\s*(歌詞付き|歌詞|lyrics?|歌ってみた|cover|カバー|karaoke|カラオケ|official|mv|pv|フル|full|가사|歌词)\s*/gi;
+const stripLyricWords = x => x.replace(LYRIC_WORDS, ' ').replace(/\s+/g, ' ').trim();
+
+/* ---------- 聞き取れなかった言葉を、近い言葉・文章に直す ---------- */
+let nearBusy = false; const nearQueue = [];
+function nearFix(S, i){ nearQueue.push([S, i]); if (nearQueue.length > 3) nearQueue.shift(); runNear(); }
+async function runNear(){
+  if (nearBusy || !nearQueue.length) return;
+  nearBusy = true;
+  const [S, i] = nearQueue.shift();
+  try{
+    const R = S.results[i]; if (!R) return;
+    const text = joinWords(R.toks), nt = norm(text);
+    if (nt.length < 4) return;
+    const sugs = await suggest(text, S.lang);
+    addPool(sugs);
+    let best = null, bestD = Infinity;
+    for (const sg of sugs.slice(0, 6)){
+      const clean = stripLyricWords(sg), ns = norm(clean);
+      if (!ns) continue;
+      if (ns === nt) return;                         // 聞き取りがそのまま正しい
+      if (ns.length < nt.length * 0.7 || ns.length > nt.length * 1.4) continue;
+      const d = editDist(nt, ns) / Math.max(nt.length, ns.length);
+      if (d < bestD){ bestD = d; best = clean; }
     }
-  }
-  const picks = [...cands.entries()].sort((a,b) => b[1].score - a[1].score).slice(0, 4);
-  let best = null;
-  for (const [key, c] of picks){
-    searched.add(country + key);
-    const results = await catalogSearch(c.phrase, country);
-    results.forEach((r, idx) => {
-      const tn = norm(r.trackName);
-      if (!tn || tn.length < (CJK.test(tn) ? 2 : 3)) return;
-      const occ = countIn(all, tn);
-      if (!occ) return;
-      const artistHit = norm(r.artistName) && all.includes(norm(r.artistName)) ? 0.15 : 0;
-      const conf = Math.min(0.97, 0.45 + Math.min(occ, 4) * 0.08 + Math.min(tn.length, 12) * 0.02 + artistHit - idx * 0.01);
-      if (!best || conf > best.confidence){
-        best = {
-          match: true, confidence: conf, title: r.trackName, artist: r.artistName, album: r.collectionName,
-          year: (r.releaseDate || '').slice(0, 4), genre: r.primaryGenreName,
-          artwork: r.artworkUrl100 ? r.artworkUrl100.replace('100x100', '300x300') : '',
-          links: { apple: r.trackViewUrl }
-        };
-      }
-    });
-    if (best && best.confidence >= 0.8) break;
-  }
-  return best || {match: false};
+    if (best && bestD > 0 && bestD <= 0.34){
+      let toks = segment(best, S.lang);
+      const shownN = S.sched[i] || 0;
+      if (shownN > 0 && toks.length > shownN) toks = toks.slice(0, shownN - 1).concat(joinWords(toks.slice(shownN - 1)));
+      R.toks = toks;
+      correctShown(S, i);
+    }
+  }catch{} finally{ nearBusy = false; runNear(); }
 }
 
-async function maybeIdentify(){
-  if (checking || songPhase === 'thinking') return;
-  const now = Date.now();
-  if (words.length - lastCheckN < 8 || now - lastCheckAt < 6000) return;
-  checking = true; lastCheckN = words.length; lastCheckAt = now;
-  try{
-    let j;
-    if (cfg.text || cfg.audio){
-      const body = {text: joinWords(words.slice(-90)), lang: recLang(), ui};
-      if (cfg.audio && lastClip){ body.audio = await toB64(lastClip); body.mime = lastClip.type; }
-      const r = await fetch('api/identify', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(body)});
-      if (!r.ok) return;
-      j = await r.json();
-    } else {
-      j = await identifyLocal();
-    }
-    if (j.match && j.confidence >= 0.6 && j.title){
-      const key = (j.title + '|' + j.artist).toLowerCase();
-      if (key !== currentKey) think(j, key);
-    }
-  }catch{} finally{ checking = false; }
+/* ---------- 曲の自動検索：歌い始めて5〜15秒で、候補と％を出す ---------- */
+let segStartAt = 0, segStartIdx = 0, lastWordAt = 0, searchBusy = false, lastSearchAt = 0, songTick = 0;
+const pool = new Map();          // ネットの検索候補（出現回数）
+let cands = new Map();           // 曲の候補
+function addPool(list){ list.forEach(x => { const k = stripLyricWords(x); if (k) pool.set(k, (pool.get(k) || 0) + 1); }); }
+function resetSegment(){ segStartAt = performance.now(); segStartIdx = words.length; lastSearchAt = 0; pool.clear(); cands = new Map(); renderPredict([]); }
+function onWordShown(){
+  const now = performance.now();
+  if ((!segStartAt || now - lastWordAt > 8000) && songPhase !== 'thinking') resetSegment();   // 8秒以上あいたら新しい曲として探し直す
+  lastWordAt = now;
 }
+function scoreCands(){
+  const segText = norm(joinWords(words.slice(segStartIdx)));
+  const pl = [...pool.entries()].map(([k, c]) => [norm(k), c]);
+  for (const c of cands.values()){
+    const tn = norm(c.title), an = norm(c.artist);
+    let sc = c.hits * 0.6;
+    for (const [ns, cnt] of pl){
+      if (tn.length >= 2 && ns.includes(tn)) sc += 1.5 * cnt;
+      if (an.length >= 2 && ns.includes(an)) sc += 1.0 * cnt;
+    }
+    if (tn.length >= 3) sc += 1.2 * Math.min(countIn(segText, tn), 3);
+    c.score = sc;
+  }
+  const ranked = [...cands.values()].filter(c => c.score > 0).sort((a, b) => b.score - a.score).slice(0, 5);
+  const total = ranked.reduce((s2, c) => s2 + c.score, 0) + 1.5;
+  ranked.forEach(c => { c.pct = c.score / total; });
+  return ranked;
+}
+function renderPredict(ranked){
+  const ol = $('#predictList'); if (!ol) return;
+  ol.innerHTML = '';
+  if (!ranked.length){ const li = document.createElement('li'); li.className = 'empty'; li.textContent = t('noPredict'); ol.append(li); return; }
+  ranked.slice(0, 3).forEach(c => {
+    const li = document.createElement('li');
+    const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = c.title;
+    const sm = document.createElement('small'); sm.textContent = c.artist || ''; nm.append(sm);
+    const pct = Math.round(c.pct * 100);
+    const pc = document.createElement('span'); pc.className = 'pc'; pc.textContent = pct + '%';
+    const bar = document.createElement('span'); bar.className = 'bar'; const bi = document.createElement('i'); bi.style.width = pct + '%'; bar.append(bi);
+    li.append(nm, pc, bar); ol.append(li);
+  });
+}
+async function searchAttempt(){
+  const lang = recLang(), country = countryOf(lang), hl = hlOf(lang);
+  const seg = words.slice(segStartIdx);
+  if (seg.length < 3) return;
+  const recent = joinWords(seg.slice(-8));
+  const head = joinWords(seg.slice(0, 8));
+  const lyr = hl === 'ja' ? ' 歌詞' : hl === 'ko' ? ' 가사' : hl === 'zh' ? ' 歌词' : ' lyrics';
+  const queries = [...new Set([recent, recent + lyr, head + lyr])];
+  const lists = await Promise.all(queries.map(x => suggest(x, lang)));
+  lists.forEach(addPool);
+  // 検索候補から曲名らしい言葉を取り出し、曲カタログで探す
+  const terms = [];
+  for (const l of lists) for (const sg of l){ const k = stripLyricWords(sg); if (k && !terms.includes(k)) terms.push(k); }
+  terms.push(recent);
+  let n = 0;
+  for (const term of terms){
+    if (n >= 3) break;
+    if (catCache.has(country + '|' + term)) continue;
+    n++;
+    const res = await catalogSearch(term, country);
+    res.forEach((r, idx) => {
+      if (!r.trackName) return;
+      const key = (r.trackName + '|' + r.artistName).toLowerCase();
+      const c = cands.get(key) || {key, title: r.trackName, artist: r.artistName, album: r.collectionName,
+        year: (r.releaseDate || '').slice(0, 4), genre: r.primaryGenreName,
+        artwork: r.artworkUrl100 ? r.artworkUrl100.replace('100x100', '300x300') : '', links: {apple: r.trackViewUrl}, hits: 0};
+      c.hits += 1 / (idx + 1);
+      cands.set(key, c);
+    });
+  }
+}
+async function songLoop(){
+  if (!listening || searchBusy || songPhase === 'thinking' || !segStartAt) return;
+  const now = performance.now(), el = (now - segStartAt) / 1000;
+  const status = $('#predictStatus');
+  if (now - lastWordAt > 8000){ if (status) status.textContent = ''; return; }
+  if (el < 5){ if (status) status.textContent = `${t('searchingSong')} ${Math.ceil(5 - el)}s`; return; }
+  if (currentKey && songPhase === 'shown' && el > 15){ if (status) status.textContent = ''; return; }   // 曲が出たら、次に歌い始めるまで待つ
+  const gap = el <= 15 ? 2000 : 5000;
+  if (now - lastSearchAt < gap) return;
+  searchBusy = true; lastSearchAt = now;
+  if (status) status.textContent = `${t('searchingSong')} ${Math.round(el)}s`;
+  try{
+    if (cfg.text || cfg.audio){ await maybeIdentifyServer(); return; }
+    await searchAttempt();
+    const ranked = scoreCands();
+    renderPredict(ranked);
+    const top = ranked[0];
+    if (!top) return;
+    const el2 = (performance.now() - segStartAt) / 1000;
+    const ready = (top.pct >= 0.6 && top.score >= 4) || (el2 >= 15 && top.pct >= 0.35) || (el2 > 15 && top.pct >= 0.5);
+    if (ready && top.key !== currentKey) think(Object.assign({match: true, confidence: top.pct}, top), top.key);
+  }catch{} finally{ searchBusy = false; }
+}
+async function maybeIdentifyServer(){
+  const body = {text: joinWords(words.slice(-90)), lang: recLang(), ui};
+  if (cfg.audio && lastClip){ body.audio = await toB64(lastClip); body.mime = lastClip.type; }
+  const r = await fetch('api/identify', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(body)});
+  if (!r.ok) return;
+  const j = await r.json();
+  if (j.match && j.confidence >= 0.6 && j.title){
+    const key = (j.title + '|' + j.artist).toLowerCase();
+    renderPredict([{title: j.title, artist: j.artist, pct: j.confidence}]);
+    if (key !== currentKey) think(j, key);
+  }
+}
+function maybeIdentify(){ onWordShown(); }
+// 曲を出す前の「考え中」は1〜3秒（確信度が高いほど短い）
 function think(song, key){
   songPhase = 'thinking';
+  const secs = song.confidence >= 0.8 ? 1 : song.confidence >= 0.6 ? 2 : 3;
   const body = $('#songBody');
-  body.innerHTML = `<div class="ring-wrap reveal"><svg class="ring" viewBox="0 0 54 54"><circle class="bgc" cx="27" cy="27" r="24"/><circle class="fg" cx="27" cy="27" r="24"/><text x="27" y="32" text-anchor="middle" id="cnt">5</text></svg><strong></strong></div>`;
+  body.innerHTML = `<div class="ring-wrap reveal"><svg class="ring" viewBox="0 0 54 54"><circle class="bgc" cx="27" cy="27" r="24"/><circle class="fg" cx="27" cy="27" r="24"/><text x="27" y="32" text-anchor="middle" id="cnt">${secs}</text></svg><strong></strong></div>`;
   body.querySelector('strong').textContent = t('matching');
-  requestAnimationFrame(() => body.querySelector('.ring').classList.add('go'));
-  let n = 5;
-  const iv = setInterval(() => { n--; const c = $('#cnt'); if (c) c.textContent = Math.max(n,0); }, 1000);
+  const ring = body.querySelector('.ring'); ring.querySelector('.fg').style.animationDuration = secs + 's';
+  requestAnimationFrame(() => ring.classList.add('go'));
+  let n = secs;
+  const iv = setInterval(() => { n--; const c = $('#cnt'); if (c) c.textContent = Math.max(n, 0); }, 1000);
   setTimeout(() => {
     clearInterval(iv);
     currentSong = song; currentKey = key; songPhase = 'shown';
     songFromLine = Math.max(0, logLines.length - 4);
     renderSong(song);
-  }, 5000);
+  }, secs * 1000);
 }
 const q = s => encodeURIComponent(s);
 function link(href, label, cls){ const a = document.createElement('a'); a.href = href; a.target = '_blank'; a.rel = 'noopener'; a.textContent = label; if (cls) a.className = cls; return a; }
@@ -572,20 +811,34 @@ function renderYourLyrics(){
   yl.scrollTop = yl.scrollHeight;
 }
 
-/* ---------- 歌から言語を自動判定 ---------- */
-let ring = [], ringLen = 0, srcRate = 48000, procNode = null, detectIv = 0, lastDet = '', detStreak = 0, asrP = null;
-function startCapture(src){
+/* ---------- 歌から言語を自動判定（別スレッドで動かし、画面を止めない） ---------- */
+let ring = [], ringLen = 0, srcRate = 48000, procNode = null, detectIv = 0, lastDet = '', detStreak = 0;
+const WORKLET_SRC = "class C extends AudioWorkletProcessor{constructor(){super();this.b=new Float32Array(2048);this.n=0}process(i){const c=i[0]&&i[0][0];if(c){for(let k=0;k<c.length;k++){this.b[this.n++]=c[k];if(this.n===2048){this.port.postMessage(this.b,[this.b.buffer]);this.b=new Float32Array(2048);this.n=0}}}return true}}registerProcessor('uk-cap',C)";
+let workletReady = null;
+function pushRing(d){ ring.push(d); ringLen += d.length; while (ringLen > srcRate * 9){ ringLen -= ring.shift().length; } }
+async function startCapture(src){
   ring = []; ringLen = 0; srcRate = audioCtx.sampleRate;
+  try{ procNode && procNode.disconnect(); }catch{}
+  procNode = null;
+  const ctxRef = audioCtx;
+  const mute = audioCtx.createGain(); mute.gain.value = 0; mute.connect(audioCtx.destination);
   try{
-    procNode = audioCtx.createScriptProcessor(4096, 1, 1);
-    procNode.onaudioprocess = e => {
-      const d = new Float32Array(e.inputBuffer.getChannelData(0));
-      ring.push(d); ringLen += d.length;
-      while (ringLen > srcRate * 9){ ringLen -= ring.shift().length; }
-    };
-    const mute = audioCtx.createGain(); mute.gain.value = 0;
-    src.connect(procNode); procNode.connect(mute); mute.connect(audioCtx.destination);
-  }catch{ procNode = null; }
+    if (!audioCtx.audioWorklet) throw 0;
+    if (!workletReady || workletReady.ctx !== ctxRef){
+      workletReady = {ctx: ctxRef, p: ctxRef.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET_SRC], {type:'text/javascript'})))};
+    }
+    await workletReady.p;
+    if (audioCtx !== ctxRef) return;
+    const node = new AudioWorkletNode(audioCtx, 'uk-cap');
+    node.port.onmessage = e => pushRing(e.data);
+    src.connect(node); node.connect(mute); procNode = node;
+  }catch{
+    try{
+      const node = audioCtx.createScriptProcessor(4096, 1, 1);
+      node.onaudioprocess = e => pushRing(new Float32Array(e.inputBuffer.getChannelData(0)));
+      src.connect(node); node.connect(mute); procNode = node;
+    }catch{ procNode = null; }
+  }
 }
 function lastSeconds(sec){
   const need = Math.min(ringLen, Math.floor(srcRate * sec)), out = new Float32Array(need);
@@ -608,60 +861,105 @@ function to16k(x){
 const WHISPER_CODES = ['en','zh','de','es','ru','ko','fr','ja','pt','tr','pl','ca','nl','ar','sv','it','id','hi','fi','vi','he','uk','el','ms','cs','ro','da','hu','ta','no','th','ur','hr','bg','lt','la','mi','ml','cy','sk','te','fa','lv','bn','sr','az','sl','kn','et','mk','br','eu','is','hy','ne','mn','bs','kk','sq','sw','gl','mr','pa','si','km','sn','yo','so','af','oc','ka','be','tg','sd','gu','am','yi','lo','uz','fo','ht','ps','tk','nn','mt','sa','lb','my','bo','tl','mg','as','tt','haw','ln','ha','ba','jw','su','yue'];
 const WHISPER_TO_LOCALE = {en:'en-US',zh:'cmn-Hans-CN',yue:'yue-Hant-HK',pt:'pt-BR',ar:'ar-SA',no:'nb-NO',nn:'nb-NO',ur:'ur-PK',bn:'bn-IN',pa:'pa-Guru-IN',sw:'sw-KE',tl:'fil-PH',jw:'jv-ID',ta:'ta-IN',es:'es-ES',fr:'fr-FR',de:'de-DE',it:'it-IT',nl:'nl-NL'};
 const whisperToLocale = c => WHISPER_TO_LOCALE[c] || LANGS.find(l => l !== 'auto' && l.split('-')[0] === c) || null;
-function loadDetector(){
-  if (!asrP){
-    asrP = (async () => {
-      const tf = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.2/dist/transformers.min.js');
-      const id = 'Xenova/whisper-tiny';
-      const [processor, tokenizer, model] = await Promise.all([
-        tf.AutoProcessor.from_pretrained(id),
-        tf.AutoTokenizer.from_pretrained(id),
-        tf.WhisperForConditionalGeneration.from_pretrained(id)
-      ]);
-      const langIds = WHISPER_CODES.map(c => [c, tokenizer.model.tokens_to_ids.get(`<|${c}|>`)]).filter(([, v]) => typeof v === 'number');
-      const sot = tokenizer.model.tokens_to_ids.get('<|startoftranscript|>') ?? 50258;
-      return {tf, processor, model, langIds, sot};
-    })();
-    asrP.catch(() => { asrP = null; });
+
+// 別スレッド（Worker）で動く判定処理
+function detectorWorker(){
+  let P = null;
+  function load(codes){
+    if (!P){
+      P = (async () => {
+        const tf = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.2/dist/transformers.min.js');
+        const id = 'Xenova/whisper-base';
+        const [processor, tokenizer, model] = await Promise.all([
+          tf.AutoProcessor.from_pretrained(id),
+          tf.AutoTokenizer.from_pretrained(id),
+          tf.WhisperForConditionalGeneration.from_pretrained(id)
+        ]);
+        const langIds = codes.map(c => [c, tokenizer.model.tokens_to_ids.get('<|' + c + '|>')]).filter(x => typeof x[1] === 'number');
+        const sotId = tokenizer.model.tokens_to_ids.get('<|startoftranscript|>');
+        return {tf, processor, model, langIds, sot: typeof sotId === 'number' ? sotId : 50258};
+      })();
+      P.catch(() => { P = null; });
+    }
+    return P;
   }
-  return asrP;
+  self.onmessage = async e => {
+    const {id, audio, codes, warm} = e.data;
+    try{
+      const m = await load(codes);
+      if (warm){ self.postMessage({id, ready: true}); return; }
+      const {input_features} = await m.processor(audio);
+      const dec = new m.tf.Tensor('int64', BigInt64Array.from([BigInt(m.sot)]), [1, 1]);
+      const out = await m.model({input_features, decoder_input_ids: dec});
+      const logits = out.logits.data, V = out.logits.dims[out.logits.dims.length - 1], base = logits.length - V;
+      let max = -Infinity; for (const [, i] of m.langIds) max = Math.max(max, logits[base + i]);
+      let sum = 0; const sc = m.langIds.map(([c, i]) => { const v = Math.exp(logits[base + i] - max); sum += v; return [c, v]; });
+      const probs = {}; sc.forEach(([c, v]) => { probs[c] = v / sum; });
+      self.postMessage({id, probs});
+    }catch(err){ self.postMessage({id, error: String(err && err.message || err)}); }
+  };
 }
-/* 音声から直接、歌っている言語を判定（文字化はせず、言語だけを見る） */
-async function detectLangFromAudio(audio16k){
-  const {tf, processor, model, langIds, sot} = await loadDetector();
-  const {input_features} = await processor(audio16k);
-  const decoder_input_ids = new tf.Tensor('int64', BigInt64Array.from([BigInt(sot)]), [1, 1]);
-  const out = await model({input_features, decoder_input_ids});
-  const logits = out.logits.data, V = out.logits.dims.at(-1), base = logits.length - V;
-  let max = -Infinity; for (const [, i] of langIds) max = Math.max(max, logits[base + i]);
-  let sum = 0; const scores = langIds.map(([c, i]) => { const e = Math.exp(logits[base + i] - max); sum += e; return [c, e]; });
-  scores.sort((x, y) => y[1] - x[1]);
-  return {code: scores[0][0], prob: scores[0][1] / sum};
+let detWorker = null, detSeq = 0;
+const detWaiting = new Map();
+function getDetWorker(){
+  if (!detWorker){
+    try{
+      const url = URL.createObjectURL(new Blob(['(' + detectorWorker.toString() + ')()'], {type:'text/javascript'}));
+      detWorker = new Worker(url, {type:'module'});
+      detWorker.onmessage = e => { const f = detWaiting.get(e.data.id); if (f){ detWaiting.delete(e.data.id); f(e.data); } };
+      detWorker.onerror = () => { detWaiting.forEach(f => f({error:'worker'})); detWaiting.clear(); try{ detWorker.terminate(); }catch{} detWorker = null; };
+    }catch{ detWorker = null; }
+  }
+  return detWorker;
 }
+function askDetector(msg, transfer){
+  return new Promise(res => {
+    const w = getDetWorker(); if (!w){ res({error:'noworker'}); return; }
+    const id = ++detSeq; detWaiting.set(id, res);
+    w.postMessage(Object.assign({id, codes: WHISPER_CODES}, msg), transfer || []);
+    setTimeout(() => { if (detWaiting.has(id)){ detWaiting.delete(id); res({error:'timeout'}); } }, 180000);
+  });
+}
+// 判定結果を積み重ねて平均し、何度も同じ言語と判断されたときだけ切り替える（英語⇔日本語の行ったり来たりを防ぐ）
+let langAvg = {}, detCount = 0, sinceSwitch = 0, lastSwitchAt = 0;
 async function detectOnce(){
   if (!listening || !isAuto() || detectBusy || !procNode) return;
-  const chunk = lastSeconds(6);
-  if (chunk.length < srcRate * 3) return;
+  const chunk = lastSeconds(8);
+  if (chunk.length < srcRate * 4) return;
   let e = 0; for (let i = 0; i < chunk.length; i += 4) e += chunk[i] * chunk[i];
-  if (Math.sqrt(e / (chunk.length / 4)) < 0.01) return;   // 無音のときは判定しない
+  if (Math.sqrt(e / (chunk.length / 4)) < 0.015) return;   // 声が小さい・無音のときは判定しない
+  if (performance.now() - heardAt > 4000) return;           // 実際に言葉が聞こえている間だけ判定
   detectBusy = true;
   try{
-    const {code, prob} = await detectLangFromAudio(to16k(chunk));
-    const lang = whisperToLocale(code);
-    if (!lang || prob < 0.4) return;
-    detStreak = lang === lastDet ? detStreak + 1 : 1; lastDet = lang;
-    if (lang !== autoLang && (detStreak >= 2 || (!detectedOnce && prob >= 0.75))){
-      autoLang = lang;
-      enqueue({type:'break'});
-      if (listening && rec){ try{ rec.stop(); }catch{} }   // 新しい言語で聞き直す
+    const audio = to16k(chunk);
+    const r = await askDetector({audio}, [audio.buffer]);
+    if (r.error || !r.probs) return;
+    // 認識できる言語に集約
+    const byLocale = {};
+    for (const [c, p] of Object.entries(r.probs)){ const loc = whisperToLocale(c); if (loc) byLocale[loc] = (byLocale[loc] || 0) + p; }
+    const keys = new Set([...Object.keys(langAvg), ...Object.keys(byLocale)]);
+    keys.forEach(k => { langAvg[k] = (langAvg[k] || 0) * 0.6 + (byLocale[k] || 0) * 0.4; });
+    detCount++; sinceSwitch++;
+    const ranked = Object.entries(langAvg).sort((a, b) => b[1] - a[1]);
+    const [best, bestP] = ranked[0] || [];
+    const curP = langAvg[autoLang] || 0;
+    if (!best) return;
+    const first = !detectedOnce;
+    const ok = best !== autoLang && (
+      first ? (detCount >= 2 && bestP >= 0.5 && bestP - curP >= 0.2)
+            : (sinceSwitch >= 3 && bestP >= 0.6 && bestP - curP >= 0.3 && performance.now() - lastSwitchAt > 15000)
+    );
+    if (ok){
+      pendingLang = best; sinceSwitch = 0; lastSwitchAt = performance.now();
+      if (performance.now() - heardAt > 1200) applyPendingLang();
     }
-    if (lang === autoLang) detectedOnce = true;
-  }catch(err){ console.warn(err); } finally{ detectBusy = false; updateBadge(); }
+    if (detCount >= 2 && (best === autoLang || pendingLang === best)) detectedOnce = true;
+  }finally{ detectBusy = false; updateBadge(); }
 }
 function startDetect(){
   clearInterval(detectIv);
-  detectedOnce = false; detStreak = 0; lastDet = '';
-  if (isAuto()){ loadDetector().catch(() => {}); detectIv = setInterval(detectOnce, 3000); }
+  detectedOnce = false; detStreak = 0; lastDet = ''; pendingLang = null; langAvg = {}; detCount = 0; sinceSwitch = 0; lastSwitchAt = 0;
+  if (isAuto()){ askDetector({warm: true}); detectIv = setInterval(detectOnce, 2500); }
   updateBadge();
 }
 
@@ -679,19 +977,21 @@ async function start(){
     showMsg(n === 'NotFoundError' || n === 'OverconstrainedError' ? t('nomic') : n === 'NotReadableError' ? t('nomic') : IN_APP ? t('inapp') : t('denied'));
     return;
   }
-  listening = true; setUI();
+  listening = true; srBlocked = false; recActive = false; recStarting = false; setUI();
   startScope();
   if (SR) startRecognition(); else showMsg(t('unsupported'));
-  startClips(); startDetect();
+  startWatchdog(); startClips(); startDetect();
+  clearInterval(songTick); songTick = setInterval(songLoop, 250); renderPredict(scoreCands());
 }
 const IN_APP = /Line\/|FBAN|FBAV|Instagram|Twitter|TikTok|MicroMessenger|KAKAOTALK/i.test(navigator.userAgent);
 function stop(){
   listening = false; setUI();
-  try{ rec && rec.stop(); }catch{}
+  clearInterval(watchdog); clearInterval(songTick);
+  try{ rec && rec.stop(); }catch{}          // stop：話している途中の言葉も最後まで受け取ってから終わる
   try{ clipRec && clipRec.state !== 'inactive' && clipRec.stop(); }catch{}
   stream?.getTracks().forEach(tr => tr.stop());
   clearInterval(detectIv); try{ procNode && procNode.disconnect(); }catch{} procNode = null;
-  cancelAnimationFrame(raf); audioCtx?.close(); audioCtx = null;
+  cancelAnimationFrame(raf); analyser = null; audioCtx?.close(); audioCtx = null; workletReady = null;
   $('#mic').style.setProperty('--lvl', 1); idleScope();
 }
 function setUI(){
@@ -706,7 +1006,10 @@ function setUI(){
 $('#mic').addEventListener('click', () => listening ? stop() : start());
 $('#recLang').addEventListener('change', e => {
   store.set('utakoe-lang', e.target.value);
-  if (listening){ startDetect(); try{ rec && rec.stop(); }catch{} }
+  if (listening){
+    startDetect();
+    if (!isAuto()){ pendingLang = null; try{ rec && rec.stop(); }catch{} }   // 手動で選んだときはすぐ切り替え
+  }
   updateBadge();
 });
 $('#uiToggle').addEventListener('click', () => { ui = ui === 'ja' ? 'en' : 'ja'; store.set('utakoe-ui', ui); applyText(); setUI(); });
@@ -716,13 +1019,13 @@ $('#copyBtn').addEventListener('click', async () => {
 });
 $('#clearBtn').addEventListener('click', () => {
   words.length = 0; logLines.length = 0; logLines.push([]); logTimes = []; currentLine = null; queue.length = 0;
-  lastCheckN = 0; currentKey = ''; currentSong = null; songPhase = 'idle';
+  currentKey = ''; currentSong = null; songPhase = 'idle'; segStartAt = 0; lastWordAt = 0; pool.clear(); cands = new Map(); renderPredict([]);
   $('#lyrics').innerHTML = `<p class="placeholder" id="placeholder">${t('idleStage')}</p>`;
   $('#songBody').innerHTML = `<p class="song-idle">${t('songIdle')}</p>`;
   renderLog();
 });
 
-applyText(); setUI(); idleScope();
+applyText(); setUI(); idleScope(); renderPredict([]);
 if (/github\.com$|githubusercontent\.com$/.test(location.hostname)) showMsg(t('github'));
 else if (!window.isSecureContext) showMsg(t('insecure'));
 else if (IN_APP) showMsg(t('inapp'));
